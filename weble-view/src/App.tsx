@@ -1526,7 +1526,7 @@ export default function App() {
                   : "필터 결과가 없습니다. 좌측 사이드바에서 필터를 완화해보세요."}
               </div>
             ) : (
-              <div className="cardList">
+              <div className="cardGrid">
                 {filtered.map((c) => {
                   const id = safeString(c.id);
                   const item = safeString(c.item);
@@ -1545,6 +1545,12 @@ export default function App() {
                   const requestCountRaw = campaignStats?.requestCount;
                   const requestCount =
                     typeof requestCountRaw === "number" ? requestCountRaw : Number(requestCountRaw);
+
+                  const reviewerLimitNum = typeof reviewerLimit === "number" ? reviewerLimit : Number(reviewerLimit);
+                  const hasRequest = Number.isFinite(requestCount) && Number.isFinite(reviewerLimitNum);
+                  const requestRatio = hasRequest
+                    ? Math.max(0, Math.min(1, reviewerLimitNum > 0 ? requestCount / reviewerLimitNum : 0))
+                    : 0;
 
                   const labelTags = label
                     .split(";")
@@ -1598,20 +1604,47 @@ export default function App() {
 
                         {/* 숨김: status / active / media */}
 
-                        <div className="row" style={{ gap: 6 }}>
-                          {typeof byDeadline === "number" ? <span className="pill pill--primary">{`D-${byDeadline}`}</span> : null}
-                          {reward ? <span className="pill">{reward}</span> : null}
-                          {Number.isFinite(point) && point > 0 ? <span className="pill">{`${point.toLocaleString()}P`}</span> : null}
-                          {Number.isFinite(requestCount) && Number.isFinite(Number(reviewerLimit)) ? (
-                            <span className="pill">{`신청 ${requestCount} / ${Number(reviewerLimit)}명`}</span>
+                        <div className="cardMetaStack">
+                          <div className="cardMetaRow">
+                            {typeof byDeadline === "number" ? (
+                              <span className="pill pill--primary">{`D-${byDeadline}`}</span>
+                            ) : (
+                              <span className="pill">D-?</span>
+                            )}
+                          </div>
+
+                          <div className="cardMetaRow">
+                            {reward ? (
+                              <span className="cardMetaStack__reward" title={reward}>
+                                {reward}
+                              </span>
+                            ) : (
+                              <span className="muted">제공내역 없음</span>
+                            )}
+                          </div>
+
+                          {Number.isFinite(point) && point > 0 ? (
+                            <div className="cardMetaRow">
+                              <span className="pill" title={`${point.toLocaleString()}P`}>{`${point.toLocaleString()}P`}</span>
+                            </div>
+                          ) : null}
+
+                          {hasRequest ? (
+                            <div className="cardMetaRow">
+                              <div className="cardMetaStack__req">
+                                <div className="cardMetaStack__reqBar" aria-hidden="true">
+                                  <div className="cardMetaStack__reqFill" style={{ width: `${requestRatio * 100}%` }} />
+                                </div>
+                                <div
+                                  className="cardMetaStack__reqText"
+                                  title={`신청 ${requestCount.toLocaleString()} / ${reviewerLimitNum.toLocaleString()}명`}
+                                >{`신청 ${requestCount.toLocaleString()} / ${reviewerLimitNum.toLocaleString()}명`}</div>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
 
                         <div className="campaignCard__kv">
-                          <div className="kvRow" style={{ borderBottom: "none" }}>
-                            <div className="key">카테고리</div>
-                            <div>{categoryToText(c.category) || <span className="muted">-</span>}</div>
-                          </div>
                           {label ? (
                             <div className="kvRow" style={{ borderBottom: "none" }}>
                               <div className="key">라벨</div>
@@ -1630,14 +1663,6 @@ export default function App() {
                               </div>
                             </div>
                           ) : null}
-                          <div className="kvRow" style={{ borderBottom: "none" }}>
-                            <div className="key">기간</div>
-                            <div>
-                              <span className="muted">{safeString((c as Record<string, unknown>).startedOn) || "-"}</span>
-                              <span className="muted"> → </span>
-                              <span className="muted">{safeString((c as Record<string, unknown>).endedOn) || "-"}</span>
-                            </div>
-                          </div>
                         </div>
 
                         {cardTagGroups.size ? (
@@ -1656,12 +1681,6 @@ export default function App() {
                             ))}
                           </div>
                         ) : null}
-
-                        <div className="campaignCard__actions">
-                          <button className="btn btn--sm" onClick={() => setSelected(c)}>
-                            상세 보기
-                          </button>
-                        </div>
                       </div>
                     </div>
                   );
