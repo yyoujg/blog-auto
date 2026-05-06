@@ -3,6 +3,33 @@ const path = require("path");
 const fs = require("fs");
 const { urls, maxPostsPerDay, USER_ID } = require("./core/config");
 
+function formatError(err) {
+  if (!err) return "Unknown error";
+  if (err instanceof Error) {
+    const cause = err.cause instanceof Error ? `\n[cause]\n${err.cause.stack || err.cause.message}` : "";
+    return `${err.stack || err.message}${cause}`;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function logError(tag, err, extra) {
+  const extraText = extra ? `\n[context]\n${JSON.stringify(extra, null, 2)}` : "";
+  console.error(`[error] ${tag}\n${formatError(err)}${extraText}`);
+}
+
+process.on("unhandledRejection", (reason) => {
+  logError("unhandledRejection", reason);
+  process.exitCode = 1;
+});
+process.on("uncaughtException", (err) => {
+  logError("uncaughtException", err);
+  process.exit(1);
+});
+
 // 실행 전 기존 Chrome for Testing 프로세스 종료 (다른 스크립트가 사용 중이면 스킵)
 const BROWSER_SCRIPTS = [
   "reviewnote-login.js", "revu-login.js",
@@ -25,7 +52,27 @@ try {
 }
 
 function getCookieHeader() {
-  const state = JSON.parse(fs.readFileSync(path.join(__dirname, "storageState.json"), "utf8"));
+  const statePath = path.join(__dirname, "storageState.json");
+  let raw;
+  try {
+    raw = fs.readFileSync(statePath, "utf8");
+  } catch (err) {
+    const e = new Error("storageState.json을 읽지 못했습니다. 먼저 로그인 세션을 저장하세요: node reviewnote/reviewnote-auto-login.js", {
+      cause: err,
+    });
+    logError("getCookieHeader.readFile", e, { statePath });
+    throw e;
+  }
+
+  let state;
+  try {
+    state = JSON.parse(raw);
+  } catch (err) {
+    const e = new Error("storageState.json 파싱 실패 (JSON 형식 오류)", { cause: err });
+    logError("getCookieHeader.parseJson", e, { statePath });
+    throw e;
+  }
+
   return state.cookies
     .filter((c) => c.domain.endsWith("reviewnote.co.kr"))
     .map((c) => `${c.name}=${c.value}`)
@@ -43,12 +90,36 @@ async function getTodayPostCount() {
   const headers = { Cookie: getCookieHeader() };
   let count = 0;
   for (let page = 1; page <= 500; page++) {
-    const res = await fetch(`${API_BASE}&page=${page}&limit=20`, { headers });
+    const url = `${API_BASE}&page=${page}&limit=20`;
+    let res;
+    try {
+      res = await fetch(url, { headers });
+    } catch (err) {
+      const e = new Error("Reviewnote API 요청 실패 (fetch)", { cause: err });
+      logError("getTodayPostCount.fetch", e, { url, page });
+      throw e;
+    }
     if (!res.ok) {
       if (res.status === 401) console.error("[오류] 세션 만료 - 다음 명령어로 재로그인 후 다시 실행하세요:\n  node reviewnote/reviewnote-auto-login.js");
-      throw new Error(`API error: ${res.status}`);
+      let bodyPreview = "";
+      try {
+        const text = await res.text();
+        bodyPreview = text.slice(0, 500);
+      } catch {
+        // ignore
+      }
+      const e = new Error(`Reviewnote API error: ${res.status}`);
+      logError("getTodayPostCount.http", e, { url, page, status: res.status, bodyPreview });
+      throw e;
     }
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (err) {
+      const e = new Error("Reviewnote API 응답 JSON 파싱 실패", { cause: err });
+      logError("getTodayPostCount.json", e, { url, page, status: res.status });
+      throw e;
+    }
     if (!data.objects || data.objects.length === 0) return count;
     for (const post of data.objects) {
       if (!post.createdAt.startsWith(today)) return count;
@@ -91,6 +162,10 @@ function shouldPost() {
     const child = spawn(process.execPath, [path.join(__dirname, "reviewnote/reviewnote-check.js")], {
       stdio: "ignore",
     });
+    child.on("error", (err) => {
+      logError("shouldPost.spawn", err, { script: "reviewnote/reviewnote-check.js" });
+      resolve(false);
+    });
     child.on("close", (code) => resolve(code === 1));
   });
 }
@@ -99,6 +174,10 @@ function shouldRevuPost() {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [path.join(__dirname, "revu/revu-check.js")], {
       stdio: "ignore",
+    });
+    child.on("error", (err) => {
+      logError("shouldRevuPost.spawn", err, { script: "revu/revu-check.js" });
+      resolve(false);
     });
     child.on("close", (code) => resolve(code === 1));
   });
@@ -112,6 +191,10 @@ function runAutoLogin() {
       [path.join(__dirname, "reviewnote/reviewnote-auto-login.js")],
       { stdio: "inherit" }
     );
+    child.on("error", (err) => {
+      logError("runAutoLogin.spawn", err, { script: "reviewnote/reviewnote-auto-login.js" });
+      resolve(1);
+    });
     child.on("close", (code) => resolve(code));
   });
 }
@@ -123,6 +206,10 @@ function runPost(title, url) {
       [path.join(__dirname, "reviewnote/reviewnote-post.js"), title, url, "블로그"],
       { stdio: "inherit" }
     );
+    child.on("error", (err) => {
+      logError("runPost.spawn", err, { script: "reviewnote/reviewnote-post.js", title, url });
+      resolve(1);
+    });
     child.on("close", (code) => {
       console.log("종료 코드:", code);
       resolve(code);
@@ -137,6 +224,10 @@ function runRevuPost(title, url) {
       [path.join(__dirname, "revu/revu-post.js"), title, url],
       { stdio: "inherit" }
     );
+    child.on("error", (err) => {
+      logError("runRevuPost.spawn", err, { script: "revu/revu-post.js", title, url });
+      resolve(1);
+    });
     child.on("close", (code) => {
       if (code !== 0) console.log("[revu.net] 게시 실패 (종료 코드:", code + ")");
       resolve(code);
@@ -145,35 +236,43 @@ function runRevuPost(title, url) {
 }
 
 (async () => {
-  // revu.net: 1회 체크 후 필요하면 1회 게시
-  const revuNeedPost = await shouldRevuPost();
-  if (!revuNeedPost) {
-    console.log("[revu.net] 최근 페이지에 내 글 있음 - 완료");
-  } else {
-    console.log("[revu.net] 최근 페이지에 내 글 없음 - 포스팅");
-    const revuCode = await runRevuPost(pick(titles), pick(urls));
-    if (revuCode !== 0) console.log("[revu.net] 포스팅 실패");
-    else console.log("[revu.net] 글 작성 완료!");
-  }
+  try {
+    // revu.net: 1회 체크 후 필요하면 1회 게시
+    const revuNeedPost = await shouldRevuPost();
+    if (!revuNeedPost) {
+      console.log("[revu.net] 최근 페이지에 내 글 있음 - 완료");
+    } else {
+      console.log("[revu.net] 최근 페이지에 내 글 없음 - 포스팅");
+      const revuCode = await runRevuPost(pick(titles), pick(urls));
+      if (revuCode !== 0) console.log("[revu.net] 포스팅 실패");
+      else console.log("[revu.net] 글 작성 완료!");
+    }
 
-  // reviewnote: 1회 체크 후 필요하면 1회 게시
-  const needPost = await shouldPost();
-  if (!needPost) {
-    console.log("최근 페이지에 내 글이 있음 - 완료");
-    return;
-  }
-  const todayCount = await getTodayPostCount();
-  if (todayCount >= maxPostsPerDay) {
-    console.log(`오늘 글 작성 한도(${maxPostsPerDay}회) 도달 - 완료`);
-    return;
-  }
-  console.log(`[오늘 ${todayCount + 1}/${maxPostsPerDay}회] 최근 페이지에 내 글 없음 - 포스팅`);
-  const exitCode = await runPost(pick(titles), pick(urls));
-  if (exitCode !== 0) {
-    const loginCode = await runAutoLogin();
-    if (loginCode !== 0) console.log("자동 재로그인 실패");
-    else console.log("재로그인 성공 - 다음 cron 실행 시 재시도됩니다");
-  } else {
-    console.log("[reviewnote] 글 작성 완료!");
+    // reviewnote: 1회 체크 후 필요하면 1회 게시
+    const needPost = await shouldPost();
+    if (!needPost) {
+      console.log("최근 페이지에 내 글이 있음 - 완료");
+      return;
+    }
+
+    const todayCount = await getTodayPostCount();
+    if (todayCount >= maxPostsPerDay) {
+      console.log(`오늘 글 작성 한도(${maxPostsPerDay}회) 도달 - 완료`);
+      return;
+    }
+
+    console.log(`[오늘 ${todayCount + 1}/${maxPostsPerDay}회] 최근 페이지에 내 글 없음 - 포스팅`);
+    const exitCode = await runPost(pick(titles), pick(urls));
+    if (exitCode !== 0) {
+      console.error("[reviewnote] 포스팅 실패. (세션 만료 가능) 자동 재로그인 시도합니다.");
+      const loginCode = await runAutoLogin();
+      if (loginCode !== 0) console.log("자동 재로그인 실패");
+      else console.log("재로그인 성공 - 다음 cron 실행 시 재시도됩니다");
+    } else {
+      console.log("[reviewnote] 글 작성 완료!");
+    }
+  } catch (err) {
+    logError("auto-post.main", err);
+    process.exitCode = 1;
   }
 })();

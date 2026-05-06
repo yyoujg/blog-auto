@@ -41,7 +41,7 @@
     "__collect-commenters": "내 블로그에 댓글 단 사람 ID 수집 → commenter-ids.json",
     "comment-visitors": "node naver/naver-comment-visitors.js",
     "__comment-visitors": "댓글 달아준 사람 블로그 방문 후 최신 글에 댓글 달기 (최대 10명, --max N / --pages N / --dry-run / --all)",
-"__4 리뷰노트__": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "__4 리뷰노트__": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "check": "node reviewnote/reviewnote-check.js",
     "__check": "리뷰노트 포스팅 조건 확인 (하루3개+최근20개)",
     "post-note": "node reviewnote/reviewnote-post.js",
@@ -62,6 +62,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@fullcalendar/core": "^6.1.20",
+    "@fullcalendar/daygrid": "^6.1.20",
+    "@fullcalendar/react": "^6.1.20",
     "@google/generative-ai": "^0.24.1",
     "@notionhq/client": "^5.11.1",
     "dotenv": "^17.3.1",

@@ -2,7 +2,7 @@ module.exports = {
   myAuthorName: "쑥쑥아리",
   maxPostsPerDay: 3,
   urls: [
-    `https://blog.naver.com/andn8740/224266052177`
+    `https://blog.naver.com/andn8740/224274119487`
   ],
   myBlogId: "andn8740",
     // [설정 1] API 키 및 기준 주소 설정
