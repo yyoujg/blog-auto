@@ -22,6 +22,15 @@ type CampaignsResponse = {
   };
 };
 
+function withApiBase(path: string) {
+  // In dev we rely on Vite proxy (/v1, /users, /campaigns).
+  // In prod (Vercel) we use a serverless proxy at /api/weble/*.
+  if (typeof import.meta !== "undefined" && (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+    return path;
+  }
+  return `/api/weble${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function toSearchParams(init: Record<string, string | string[] | number | undefined>) {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(init)) {
@@ -57,9 +66,9 @@ export async function fetchAllCampaignPages(args: {
   const all: Campaign[] = [];
   const token = (args.bearerToken ?? "").trim().replace(/^Bearer\s+/i, "");
 
-  let nextPath = `/v1/campaigns?${toSearchParams(baseParams).toString()}&${args.media
+  let nextPath = withApiBase(`/v1/campaigns?${toSearchParams(baseParams).toString()}&${args.media
     .map((m) => `${encodeURIComponent(mediaKey)}=${encodeURIComponent(m)}`)
-    .join("&")}&page=${startPage}`;
+    .join("&")}&page=${startPage}`);
 
   let pagesFetched = 0;
   let totalReported: number | undefined;
@@ -90,7 +99,8 @@ export async function fetchAllCampaignPages(args: {
     }
 
     const next = json._links?.next;
-    nextPath = next ? (next.startsWith("http") ? new URL(next).pathname + new URL(next).search : next) : "";
+    const rawNext = next ? (next.startsWith("http") ? new URL(next).pathname + new URL(next).search : next) : "";
+    nextPath = rawNext ? withApiBase(rawNext) : "";
   }
 
   return {
@@ -118,7 +128,7 @@ export async function fetchStarredsConfirm(args: {
   if (ids.length === 0) return { starredByCampaignId: {} as Record<number, boolean>, raw: null as unknown };
 
   const token = args.bearerToken.trim().replace(/^Bearer\s+/i, "");
-  const url = `/users/${args.userId}/starreds-confirm?campaigns=${encodeURIComponent(ids.join(","))}`;
+  const url = withApiBase(`/users/${args.userId}/starreds-confirm?campaigns=${encodeURIComponent(ids.join(","))}`);
   const res = await fetch(url, {
     method: "GET",
     signal: args.signal,

@@ -852,7 +852,11 @@ export default function App() {
     selectedDetailAbortRef.current = ctl;
 
     const token = (bearerToken ?? "").trim().replace(/^Bearer\\s+/i, "");
-    fetch(`/campaigns/${id}`, {
+    const detailUrl =
+      typeof import.meta !== "undefined" && (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV
+        ? `/campaigns/${id}`
+        : `/api/weble/campaigns/${id}`;
+    fetch(detailUrl, {
       signal: ctl.signal,
       headers: token
         ? {
