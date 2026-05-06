@@ -1,8 +1,2 @@
-{
-  "functions": {
-    "api/weble/[...path].ts": {
-      "runtime": "nodejs20.x"
-    }
-  }
-}
+{}
 
