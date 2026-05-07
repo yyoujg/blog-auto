@@ -14,7 +14,13 @@ const SESSION_FILE = "storageState-revu.json";
   }
 
   if (!fs.existsSync(SESSION_FILE)) {
-    console.error(`[revu.net] 세션 파일(${SESSION_FILE})이 없습니다. 먼저 "node save-session-revu.js"를 실행하세요.`);
+    console.error(
+      [
+        `[revu.net] 세션 파일(${SESSION_FILE})이 없습니다.`,
+        "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+        "  npm run save-session-revu",
+      ].join("\n"),
+    );
     process.exit(1);
   }
 
@@ -29,7 +35,13 @@ const SESSION_FILE = "storageState-revu.json";
   const currentUrl = page.url();
   if (!currentUrl.includes("/community/neighbor/write")) {
     console.error(`[revu.net] 글쓰기 페이지로 이동 실패. 현재 URL: ${currentUrl}`);
-    console.error("  → 세션이 만료되었을 수 있습니다. 'node save-session-revu.js'를 다시 실행하세요.");
+    console.error(
+      [
+        "  → 세션이 만료되었을 수 있습니다.",
+        "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+        "  npm run save-session-revu",
+      ].join("\n"),
+    );
     await browser.close();
     process.exit(1);
   }

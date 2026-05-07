@@ -57,9 +57,16 @@ function getCookieHeader() {
   try {
     raw = fs.readFileSync(statePath, "utf8");
   } catch (err) {
-    const e = new Error("storageState.json을 읽지 못했습니다. 먼저 로그인 세션을 저장하세요: node reviewnote/reviewnote-auto-login.js", {
+    const e = new Error(
+      [
+        "storageState.json을 읽지 못했습니다.",
+        "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+        "  npm run login-auto",
+      ].join("\n"),
+      {
       cause: err,
-    });
+      },
+    );
     logError("getCookieHeader.readFile", e, { statePath });
     throw e;
   }
