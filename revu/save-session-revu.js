@@ -1,22 +1,7 @@
 const { chromium } = require("playwright");
 const path = require("path");
 
-const scriptDir = path.resolve(__dirname);
-const cwd = path.resolve(process.cwd());
-
-if (cwd !== scriptDir) {
-  console.error(
-    [
-      "이 스크립트는 루트에서 실행하면 안 됩니다.",
-      "",
-      "cd revu && node save-session-revu.js",
-      "",
-      `현재 실행 위치: ${cwd}`,
-      `스크립트 위치: ${scriptDir}`,
-    ].join("\n"),
-  );
-  process.exit(1);
-}
+const ROOT_STATE_PATH = path.resolve(__dirname, "..", "storageState-revu.json");
 
 (async () => {
   const browser = await chromium.launch({ headless: false });
@@ -25,11 +10,17 @@ if (cwd !== scriptDir) {
 
   await page.goto("https://www.revu.net/login", { waitUntil: "domcontentloaded" });
 
-  console.log("브라우저에서 revu.net 로그인 완료 후, 아무 키나 누르세요.");
+  console.log(
+    [
+      "브라우저에서 revu.net 로그인 완료 후, 아무 키나 누르세요.",
+      "",
+      `저장 위치: ${ROOT_STATE_PATH}`,
+    ].join("\n"),
+  );
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on("data", async () => {
-    await context.storageState({ path: "storageState-revu.json" });
+    await context.storageState({ path: ROOT_STATE_PATH });
     console.log("세션이 storageState-revu.json에 저장되었습니다.");
     await browser.close();
     process.exit(0);

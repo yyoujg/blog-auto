@@ -100,7 +100,15 @@ async function getTodayPostCount() {
       throw e;
     }
     if (!res.ok) {
-      if (res.status === 401) console.error("[오류] 세션 만료 - 다음 명령어로 재로그인 후 다시 실행하세요:\n  node reviewnote/reviewnote-auto-login.js");
+      if (res.status === 401) {
+        console.error(
+          [
+            "[오류] Reviewnote 세션 만료",
+            "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+            "  npm run login-auto",
+          ].join("\n"),
+        );
+      }
       let bodyPreview = "";
       try {
         const text = await res.text();
