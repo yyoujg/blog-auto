@@ -34,7 +34,13 @@ const WRITE_URL = "https://www.reviewnote.co.kr/communities/friend/new";
   const currentUrl = page.url();
   if (!currentUrl.includes("/communities/friend/new")) {
     console.error(`[reviewnote] 글쓰기 페이지로 이동 실패. 현재 URL: ${currentUrl}`);
-    console.error("  → 세션이 만료되었을 수 있습니다. 'node reviewnote/reviewnote-login.js'를 다시 실행하세요.");
+    console.error(
+      [
+        "  → 세션이 만료되었을 수 있습니다.",
+        "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+        "  npm run login",
+      ].join("\n"),
+    );
     await browser.close();
     process.exit(1);
   }

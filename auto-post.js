@@ -33,7 +33,7 @@ process.on("uncaughtException", (err) => {
 // 실행 전 기존 Chrome for Testing 프로세스 종료 (다른 스크립트가 사용 중이면 스킵)
 const BROWSER_SCRIPTS = [
   "reviewnote-login.js", "revu-login.js",
-  "reviewnote/reviewnote-auto-login.js", "save-session-revu.js",
+  "save-session-revu.js",
   "naver-login.js", "naver-like.js",
   "naver-collect-commenters.js",
   "naver-blog-post.js",
@@ -61,7 +61,7 @@ function getCookieHeader() {
       [
         "storageState.json을 읽지 못했습니다.",
         "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-        "  npm run login-auto",
+        "  npm run login",
       ].join("\n"),
       {
       cause: err,
@@ -112,7 +112,7 @@ async function getTodayPostCount() {
           [
             "[오류] Reviewnote 세션 만료",
             "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-            "  npm run login-auto",
+            "  npm run login",
           ].join("\n"),
         );
       }
@@ -198,22 +198,6 @@ function shouldRevuPost() {
   });
 }
 
-function runAutoLogin() {
-  return new Promise((resolve) => {
-    console.log("[auto-login] 세션 만료 감지 → 자동 재로그인 시도...");
-    const child = spawn(
-      process.execPath,
-      [path.join(__dirname, "reviewnote/reviewnote-auto-login.js")],
-      { stdio: "inherit" }
-    );
-    child.on("error", (err) => {
-      logError("runAutoLogin.spawn", err, { script: "reviewnote/reviewnote-auto-login.js" });
-      resolve(1);
-    });
-    child.on("close", (code) => resolve(code));
-  });
-}
-
 function runPost(title, url) {
   return new Promise((resolve) => {
     const child = spawn(
@@ -279,10 +263,13 @@ function runRevuPost(title, url) {
     console.log(`[오늘 ${todayCount + 1}/${maxPostsPerDay}회] 최근 페이지에 내 글 없음 - 포스팅`);
     const exitCode = await runPost(pick(titles), pick(urls));
     if (exitCode !== 0) {
-      console.error("[reviewnote] 포스팅 실패. (세션 만료 가능) 자동 재로그인 시도합니다.");
-      const loginCode = await runAutoLogin();
-      if (loginCode !== 0) console.log("자동 재로그인 실패");
-      else console.log("재로그인 성공 - 다음 cron 실행 시 재시도됩니다");
+      console.error(
+        [
+          "[reviewnote] 포스팅 실패 (세션 만료 가능)",
+          "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+          "  npm run login",
+        ].join("\n"),
+      );
     } else {
       console.log("[reviewnote] 글 작성 완료!");
     }
