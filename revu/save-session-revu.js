@@ -1,4 +1,22 @@
 const { chromium } = require("playwright");
+const path = require("path");
+
+const scriptDir = path.resolve(__dirname);
+const cwd = path.resolve(process.cwd());
+
+if (cwd !== scriptDir) {
+  console.error(
+    [
+      "이 스크립트는 루트에서 실행하면 안 됩니다.",
+      "",
+      "cd revu && node save-session-revu.js",
+      "",
+      `현재 실행 위치: ${cwd}`,
+      `스크립트 위치: ${scriptDir}`,
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 
 (async () => {
   const browser = await chromium.launch({ headless: false });
