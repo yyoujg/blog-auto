@@ -10,6 +10,7 @@ const FullCalendar = FullCalendarOriginal as unknown as React.ComponentType<
 
 type Status = "idle" | "loading" | "done" | "error";
 type ActiveSelect = "__ALL__" | "true" | "false";
+type CompetitionOrder = "default" | "asc" | "desc";
 
 function safeString(v: unknown) {
   if (v === null || v === undefined) return "";
@@ -161,6 +162,26 @@ function formatScalar(v: unknown) {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/** 신청 수 / 모집 인원. 카드 UI와 동일한 필드; 정렬용은 clamp 없음. */
+function campaignCompetitionRatio(c: Campaign): number | null {
+  const row = c as Record<string, unknown>;
+  const stats = row.campaignStats;
+  if (!isPlainObject(stats)) return null;
+  const requestCountRaw = stats.requestCount;
+  const requestCount =
+    typeof requestCountRaw === "number" ? requestCountRaw : Number(requestCountRaw);
+  const reviewerLimitRaw = row.reviewerLimit;
+  const reviewerLimit =
+    typeof reviewerLimitRaw === "number" ? reviewerLimitRaw : Number(reviewerLimitRaw);
+  if (!Number.isFinite(requestCount) || !Number.isFinite(reviewerLimit) || reviewerLimit <= 0) return null;
+  return requestCount / reviewerLimit;
+}
+
+function campaignNumericId(c: Campaign): number | null {
+  const id = typeof c.id === "number" ? c.id : Number((c as Record<string, unknown>).id);
+  return Number.isFinite(id) ? id : null;
 }
 
 function MiniValueView({
@@ -819,6 +840,7 @@ export default function App() {
   const [selCategoryChild, setSelCategoryChild] = useState<string>("__ALL__");
   const [selLabel, setSelLabel] = useState<string>("__ALL__");
   const [excludePaybackLabel, setExcludePaybackLabel] = useState(true);
+  const [competitionOrder, setCompetitionOrder] = useState<CompetitionOrder>("default");
 
   const abortRef = useRef<AbortController | null>(null);
   const autoLoadedRef = useRef(false);
@@ -1029,9 +1051,32 @@ export default function App() {
     filterOptions
   ]);
 
+  const orderedFiltered = useMemo(() => {
+    if (competitionOrder === "default") return filtered;
+
+    const copy = filtered.slice();
+    copy.sort((a, b) => {
+      const ra = campaignCompetitionRatio(a);
+      const rb = campaignCompetitionRatio(b);
+      const ida = campaignNumericId(a);
+      const idb = campaignNumericId(b);
+
+      if (ra === null && rb === null) return (ida ?? 0) - (idb ?? 0);
+      if (ra === null) return 1;
+      if (rb === null) return -1;
+      if (competitionOrder === "asc") {
+        if (ra !== rb) return ra - rb;
+        return (ida ?? 0) - (idb ?? 0);
+      }
+      if (ra !== rb) return rb - ra;
+      return (ida ?? 0) - (idb ?? 0);
+    });
+    return copy;
+  }, [filtered, competitionOrder]);
+
   const allTableKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const c of filtered) {
+    for (const c of orderedFiltered) {
       if (!c || typeof c !== "object") continue;
       for (const k of Object.keys(c)) keys.add(k);
     }
@@ -1055,7 +1100,7 @@ export default function App() {
     const rest = Array.from(keys).filter((k) => !preferredSet.has(k));
     rest.sort((a, b) => a.localeCompare(b, "en"));
     return [...preferred, ...rest];
-  }, [filtered]);
+  }, [orderedFiltered]);
 
   async function loadAll() {
     abortRef.current?.abort();
@@ -1166,6 +1211,7 @@ export default function App() {
     setExcludePaybackLabel(true);
     setQAll("");
     setQItem("");
+    setCompetitionOrder("default");
   }
 
   const activeFilterChips = useMemo(() => {
@@ -1191,8 +1237,24 @@ export default function App() {
     if (selLabel !== "__ALL__") chips.push({ id: "label", label: `라벨: ${selLabel}`, onRemove: () => setSelLabel("__ALL__") });
     if (qAll.trim()) chips.push({ id: "qAll", label: `검색: "${qAll.trim()}"`, onRemove: () => setQAll("") });
     if (qItem.trim()) chips.push({ id: "qItem", label: `상품명: "${qItem.trim()}"`, onRemove: () => setQItem("") });
+    if (competitionOrder === "asc") {
+      chips.push({ id: "competitionAsc", label: "정렬: 경쟁률 낮은순", onRemove: () => setCompetitionOrder("default") });
+    } else if (competitionOrder === "desc") {
+      chips.push({ id: "competitionDesc", label: "정렬: 경쟁률 높은순", onRemove: () => setCompetitionOrder("default") });
+    }
     return chips;
-  }, [excludePaybackLabel, selMedia, selStatus, selActive, selCategoryParent, selCategoryChild, selLabel, qAll, qItem]);
+  }, [
+    excludePaybackLabel,
+    selMedia,
+    selStatus,
+    selActive,
+    selCategoryParent,
+    selCategoryChild,
+    selLabel,
+    qAll,
+    qItem,
+    competitionOrder
+  ]);
 
   return (
     <div className={selected ? "app-shell app-shell--withDetail" : "app-shell"}>
@@ -1327,6 +1389,19 @@ export default function App() {
                 ))}
               </select>
             </div>
+
+            <div className="field">
+              <label>경쟁률 정렬</label>
+              <select
+                className="select"
+                value={competitionOrder}
+                onChange={(e) => setCompetitionOrder(e.target.value as CompetitionOrder)}
+              >
+                <option value="default">기본순 (조회 순서)</option>
+                <option value="asc">낮은순 (신청/모집 비율)</option>
+                <option value="desc">높은순 (신청/모집 비율)</option>
+              </select>
+            </div>
           </div>
         </section>
 
@@ -1436,6 +1511,16 @@ export default function App() {
                 ))}
               </select>
             ) : null}
+            <select
+              className="select"
+              value={competitionOrder}
+              onChange={(e) => setCompetitionOrder(e.target.value as CompetitionOrder)}
+              title="신청 수 ÷ 모집 인원"
+            >
+              <option value="default">경쟁률: 기본순</option>
+              <option value="asc">경쟁률: 낮은순</option>
+              <option value="desc">경쟁률: 높은순</option>
+            </select>
           </div>
 
           <div className="toolbar">
@@ -1447,7 +1532,7 @@ export default function App() {
             />
             <div className="row" style={{ flex: 1, justifyContent: "flex-end" }}>
               <span className="muted">
-                결과 <strong style={{ color: "var(--text)" }}>{filtered.length}</strong>{" "}
+                결과 <strong style={{ color: "var(--text)" }}>{orderedFiltered.length}</strong>{" "}
                 <span className="muted">/ 원본 {items.length}</span>
               </span>
             </div>
@@ -1523,7 +1608,7 @@ export default function App() {
           {status === "error" ? <div className="alert">조회 에러: {error}</div> : null}
 
           <div className="cardsCard">
-            {filtered.length === 0 ? (
+            {orderedFiltered.length === 0 ? (
               <div className="empty">
                 {items.length === 0
                   ? "아직 조회된 데이터가 없습니다. 우측 상단의 ‘전체 페이지 조회’를 눌러주세요."
@@ -1531,7 +1616,7 @@ export default function App() {
               </div>
             ) : (
               <div className="cardGrid">
-                {filtered.map((c) => {
+                {orderedFiltered.map((c) => {
                   const id = safeString(c.id);
                   const item = safeString(c.item);
                   const label = safeString((c as Record<string, unknown>).label);
@@ -1590,6 +1675,8 @@ export default function App() {
                     return type;
                   };
 
+                  const revuId = campaignNumericId(c);
+
                   return (
                     <div key={id + safeString((c as Record<string, unknown>).hash)} className="campaignCard">
                       <button className="campaignCard__click" onClick={() => setSelected(c)} title="상세 보기" />
@@ -1605,6 +1692,20 @@ export default function App() {
                             {/* 숨김: ID */}
                           </div>
                         </div>
+
+                        {revuId !== null ? (
+                          <div className="campaignCard__actions">
+                            <a
+                              className="btn btn--sm"
+                              href={`https://www.revu.net/campaign/${revuId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Revu에서 보기
+                            </a>
+                          </div>
+                        ) : null}
 
                         {/* 숨김: status / active / media */}
 

@@ -77,14 +77,15 @@ a:hover {
 }
 
 .sidebar {
-  display: none;
+  display: block;
   background: var(--surface);
-  border-right: 1px solid var(--border);
-  padding: 20px 18px 28px;
-  overflow-y: auto;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+  padding: 20px max(18px, env(safe-area-inset-left, 0px)) 28px max(18px, env(safe-area-inset-right, 0px));
+  overflow-y: visible;
+  position: static;
+  height: auto;
+  min-height: 0;
 }
 
 .sidebar__brand {
@@ -567,9 +568,14 @@ a:hover {
   gap: 8px;
   flex-wrap: wrap;
 }
-.campaignCard__actions .btn {
+.campaignCard__actions .btn,
+.campaignCard__actions a.btn {
   position: relative;
   z-index: 2; /* above campaignCard__click */
+  text-decoration: none;
+}
+.campaignCard__actions a.btn:hover {
+  text-decoration: none;
 }
 
 .tableWrap {
@@ -1178,15 +1184,108 @@ details > summary:hover {
   color: var(--muted);
 }
 
-@media (max-width: 1100px) {
+@media (min-width: 1101px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(260px, var(--sidebar-w)) 1fr;
   }
   .sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    max-height: 100svh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    padding: 20px 18px 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell--withDetail .main {
+    margin-right: 0;
+  }
+  .drawer {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    height: 100svh;
+    max-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .drawer__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(20, 24, 40, 0.42);
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 12px max(14px, env(safe-area-inset-left, 0px)) 20px max(14px, env(safe-area-inset-right, 0px));
+    gap: 12px;
+  }
+  .topbar {
     height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    min-height: var(--topbar-h);
+    padding: 10px max(14px, env(safe-area-inset-left, 0px)) 10px max(14px, env(safe-area-inset-right, 0px));
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .topbar > .row {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+  .topbar__title h1 {
+    font-size: 14px;
+  }
+  .toolbar .search {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .topControls .select,
+  .topControls .input {
+    flex: 1 1 min(200px, 100%);
+    min-width: 0;
+  }
+  .detailSummary {
+    grid-template-columns: 1fr;
+  }
+  .detailThumb {
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+  .detailRow {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .kvRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .kvRow > .key {
+    white-space: normal;
+  }
+  .campaignPeriod__row {
+    grid-template-columns: 1fr;
+  }
+  .cellTrunc {
+    max-width: 100%;
+  }
+  .cellComplex {
+    max-width: 100%;
+  }
+  .tableWrap {
+    max-height: min(65dvh, calc(100dvh - 200px));
   }
 }
 
@@ -1199,5 +1298,8 @@ details > summary:hover {
 @media (max-width: 720px) {
   .campaignCard {
     grid-template-columns: 120px 1fr;
+  }
+  .cardGrid {
+    grid-template-columns: 1fr;
   }
 }
