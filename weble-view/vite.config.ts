@@ -38,6 +38,23 @@ export default defineConfig({
             proxyReq.setHeader("referer", "https://www.revu.net/");
           });
         }
+      },
+      "/rn": {
+        target: "https://www.reviewnote.co.kr",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (p) => p.replace(/^\/rn/, ""),
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            proxyReq.setHeader("origin", "https://www.reviewnote.co.kr");
+            proxyReq.setHeader("referer", "https://www.reviewnote.co.kr/campaigns?channel=BLOG&sort=DELIVERY");
+            const raw = req.headers["x-reviewnote-cookie"];
+            const c = Array.isArray(raw) ? raw[0] : raw;
+            if (typeof c === "string" && c.trim()) {
+              proxyReq.setHeader("cookie", c);
+            }
+          });
+        }
       }
     }
   }

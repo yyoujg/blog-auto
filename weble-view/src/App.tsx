@@ -3,6 +3,13 @@ import FullCalendarOriginal from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import koLocale from "@fullcalendar/core/locales/ko";
 import { Campaign, fetchAllCampaignPages } from "./api/weble";
+import {
+  fetchAllReviewnoteCampaignPages,
+  rnNumericId,
+  rnThumb,
+  rnTitle,
+  type ReviewnoteRow
+} from "./api/reviewnote";
 
 const FullCalendar = FullCalendarOriginal as unknown as React.ComponentType<
   Record<string, unknown>
@@ -11,6 +18,10 @@ const FullCalendar = FullCalendarOriginal as unknown as React.ComponentType<
 type Status = "idle" | "loading" | "done" | "error";
 type ActiveSelect = "__ALL__" | "true" | "false";
 type CompetitionOrder = "default" | "asc" | "desc";
+type DataSource = "weble" | "reviewnote";
+type SelectedEntry =
+  | { kind: "weble"; campaign: Campaign }
+  | { kind: "reviewnote"; row: ReviewnoteRow };
 
 function safeString(v: unknown) {
   if (v === null || v === undefined) return "";
@@ -796,6 +807,29 @@ export default function App() {
   const [type, setType] = useState("play");
   const [startPage, setStartPage] = useState(1);
 
+  const [dataSource, setDataSource] = useState<DataSource>("weble");
+  const [reviewnoteCookie, setReviewnoteCookie] = useState(() => {
+    try {
+      return localStorage.getItem("webleView.rememberRnCookie") === "1"
+        ? localStorage.getItem("webleView.rnCookie") ?? ""
+        : "";
+    } catch {
+      return "";
+    }
+  });
+  const [rememberRnCookie, setRememberRnCookie] = useState(() => {
+    try {
+      return localStorage.getItem("webleView.rememberRnCookie") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [rnChannel, setRnChannel] = useState("BLOG");
+  const [rnSort, setRnSort] = useState("DELIVERY");
+  const [rnLimit, setRnLimit] = useState(16);
+  const [rnStartPage, setRnStartPage] = useState(0);
+  const [reviewnoteItems, setReviewnoteItems] = useState<ReviewnoteRow[]>([]);
+
   // Loaded data
   const [items, setItems] = useState<Campaign[]>([]);
   const [pagesFetched, setPagesFetched] = useState<number>(0);
@@ -822,7 +856,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Selected (drawer)
-  const [selected, setSelected] = useState<Campaign | null>(null);
+  const [selected, setSelected] = useState<SelectedEntry | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Record<string, unknown> | null>(null);
   const [selectedDetailStatus, setSelectedDetailStatus] = useState<Status>("idle");
   const selectedDetailAbortRef = useRef<AbortController | null>(null);
@@ -842,8 +876,12 @@ export default function App() {
   const [excludePaybackLabel, setExcludePaybackLabel] = useState(true);
   const [competitionOrder, setCompetitionOrder] = useState<CompetitionOrder>("default");
 
+  useEffect(() => {
+    setCompetitionOrder("default");
+  }, [dataSource]);
+
   const abortRef = useRef<AbortController | null>(null);
-  const autoLoadedRef = useRef(false);
+  const autoLoadedRef = useRef<{ weble: boolean; rn: boolean }>({ weble: false, rn: false });
 
   const cacheKey = "webleView.cache.v1";
   const cacheTtlMs = 1000 * 60 * 10; // 10 minutes
@@ -862,13 +900,21 @@ export default function App() {
   useEffect(() => {
     selectedDetailAbortRef.current?.abort();
     setSelectedDetail(null);
-    setSelectedDetailStatus(selected ? "loading" : "idle");
+    if (!selected || selected.kind !== "weble") {
+      setSelectedDetailStatus("idle");
+      return;
+    }
+
+    setSelectedDetailStatus("loading");
 
     const id =
-      selected && typeof (selected as Record<string, unknown>).id === "number"
-        ? ((selected as Record<string, unknown>).id as number)
-        : null;
-    if (!selected || !id) return;
+      typeof selected.campaign.id === "number"
+        ? selected.campaign.id
+        : Number((selected.campaign as Record<string, unknown>).id);
+    if (!Number.isFinite(id)) {
+      setSelectedDetailStatus("idle");
+      return;
+    }
 
     const ctl = new AbortController();
     selectedDetailAbortRef.current = ctl;
@@ -923,6 +969,19 @@ export default function App() {
     }
   }, [rememberToken, bearerToken]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("webleView.rememberRnCookie", rememberRnCookie ? "1" : "0");
+      if (rememberRnCookie) {
+        localStorage.setItem("webleView.rnCookie", reviewnoteCookie);
+      } else {
+        localStorage.removeItem("webleView.rnCookie");
+      }
+    } catch {
+      // ignore
+    }
+  }, [rememberRnCookie, reviewnoteCookie]);
+
   // Restore cached campaigns on load (fast UI)
   useEffect(() => {
     try {
@@ -951,6 +1010,16 @@ export default function App() {
   }, []);
 
   const filterOptions = useMemo(() => {
+    if (dataSource === "reviewnote") {
+      return {
+        medias: [] as string[],
+        statuses: [] as string[],
+        categoryParents: [] as string[],
+        categoryChildrenByParent: new Map<string, string[]>(),
+        labels: [] as string[],
+        activeChoices: { hasActiveTrue: false, hasActiveFalse: false }
+      };
+    }
     const medias = new Set<string>();
     const statuses = new Set<string>();
     const categoryParents = new Set<string>(CATEGORY_PARENT_ORDER);
@@ -1006,9 +1075,10 @@ export default function App() {
       labels: toSorted(labels),
       activeChoices: { hasActiveTrue, hasActiveFalse }
     };
-  }, [items]);
+  }, [items, dataSource]);
 
   const filtered = useMemo(() => {
+    if (dataSource === "reviewnote") return [];
     const qqItem = qItem.trim().toLowerCase();
     const qqAll = qAll.trim();
     const effectiveCategoryChildren =
@@ -1048,8 +1118,21 @@ export default function App() {
     selCategoryChild,
     selLabel,
     excludePaybackLabel,
-    filterOptions
+    filterOptions,
+    dataSource
   ]);
+
+  const rnFiltered = useMemo(() => {
+    if (dataSource !== "reviewnote") return [];
+    const qqItem = qItem.trim().toLowerCase();
+    const qqAll = qAll.trim();
+    return reviewnoteItems.filter((r) => {
+      if (excludePaybackLabel && rnTitle(r).includes("페이백")) return false;
+      if (qqItem && !rnTitle(r).toLowerCase().includes(qqItem)) return false;
+      if (qqAll && !jsonSearch(r as unknown as Campaign, qqAll)) return false;
+      return true;
+    });
+  }, [dataSource, reviewnoteItems, qItem, qAll, excludePaybackLabel]);
 
   const orderedFiltered = useMemo(() => {
     if (competitionOrder === "default") return filtered;
@@ -1076,7 +1159,9 @@ export default function App() {
 
   const allTableKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const c of orderedFiltered) {
+    const list =
+      dataSource === "weble" ? orderedFiltered : (rnFiltered as unknown as Campaign[]);
+    for (const c of list) {
       if (!c || typeof c !== "object") continue;
       for (const k of Object.keys(c)) keys.add(k);
     }
@@ -1100,7 +1185,7 @@ export default function App() {
     const rest = Array.from(keys).filter((k) => !preferredSet.has(k));
     rest.sort((a, b) => a.localeCompare(b, "en"));
     return [...preferred, ...rest];
-  }, [orderedFiltered]);
+  }, [orderedFiltered, rnFiltered, dataSource]);
 
   async function loadAll() {
     abortRef.current?.abort();
@@ -1110,11 +1195,29 @@ export default function App() {
     setStatus("loading");
     setError("");
     setItems([]);
+    setReviewnoteItems([]);
     setPagesFetched(0);
     setTotalReported(undefined);
     setLastPage(undefined);
 
     try {
+      if (dataSource === "reviewnote") {
+        const res = await fetchAllReviewnoteCampaignPages({
+          channel: rnChannel,
+          sort: rnSort,
+          limit: rnLimit,
+          startPage: rnStartPage,
+          cookie: reviewnoteCookie,
+          signal: ac.signal
+        });
+        setReviewnoteItems(res.items);
+        setPagesFetched(res.pagesFetched);
+        setTotalReported(res.totalReported);
+        setLastPage(res.lastPage);
+        setStatus("done");
+        return;
+      }
+
       const medias = mediaInput
         .split(/[,\s]+/g)
         .map((s) => s.trim())
@@ -1185,17 +1288,22 @@ export default function App() {
     }
   }
 
-  // Auto-load when token exists (once per session)
+  // Auto-load when credentials exist (once per source)
   useEffect(() => {
-    if (autoLoadedRef.current) return;
-    if (!bearerToken.trim()) return;
     if (status === "loading") return;
-    // if cache restored, don't auto-fetch immediately; user can refresh manually
-    if (items.length > 0) return;
-    autoLoadedRef.current = true;
+    if (items.length > 0 || reviewnoteItems.length > 0) return;
+    if (dataSource === "weble") {
+      if (autoLoadedRef.current.weble) return;
+      if (!bearerToken.trim()) return;
+      autoLoadedRef.current.weble = true;
+    } else {
+      if (autoLoadedRef.current.rn) return;
+      if (!reviewnoteCookie.trim()) return;
+      autoLoadedRef.current.rn = true;
+    }
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bearerToken, status, items.length]);
+  }, [bearerToken, reviewnoteCookie, dataSource, status, items.length, reviewnoteItems.length]);
 
   function stop() {
     abortRef.current?.abort();
@@ -1212,38 +1320,45 @@ export default function App() {
     setQAll("");
     setQItem("");
     setCompetitionOrder("default");
+    setRnChannel("BLOG");
+    setRnSort("DELIVERY");
+    setRnLimit(16);
+    setRnStartPage(0);
   }
 
   const activeFilterChips = useMemo(() => {
     const chips: { id: string; label: string; onRemove: () => void }[] = [];
-    if (excludePaybackLabel) chips.push({ id: "noPayback", label: "라벨: 페이백 제외", onRemove: () => setExcludePaybackLabel(false) });
-    if (selMedia !== "__ALL__") chips.push({ id: "media", label: `매체: ${selMedia}`, onRemove: () => setSelMedia("__ALL__") });
-    if (selStatus !== "__ALL__") chips.push({ id: "status", label: `상태: ${selStatus}`, onRemove: () => setSelStatus("__ALL__") });
-    if (selActive !== "__ALL__") chips.push({ id: "active", label: `활성: ${selActive}`, onRemove: () => setSelActive("__ALL__") });
-    if (selCategoryParent !== "__ALL__" && selCategoryChild === "__ALL__") {
+    if (dataSource === "weble" && excludePaybackLabel) {
+      chips.push({ id: "noPayback", label: "라벨: 페이백 제외", onRemove: () => setExcludePaybackLabel(false) });
+    }
+    if (dataSource === "weble" && selMedia !== "__ALL__") chips.push({ id: "media", label: `매체: ${selMedia}`, onRemove: () => setSelMedia("__ALL__") });
+    if (dataSource === "weble" && selStatus !== "__ALL__") chips.push({ id: "status", label: `상태: ${selStatus}`, onRemove: () => setSelStatus("__ALL__") });
+    if (dataSource === "weble" && selActive !== "__ALL__") chips.push({ id: "active", label: `활성: ${selActive}`, onRemove: () => setSelActive("__ALL__") });
+    if (dataSource === "weble" && selCategoryParent !== "__ALL__" && selCategoryChild === "__ALL__") {
       chips.push({
         id: "categoryParent",
         label: `카테고리: ${selCategoryParent}`,
         onRemove: () => setSelCategoryParent("__ALL__")
       });
     }
-    if (selCategoryChild !== "__ALL__") {
+    if (dataSource === "weble" && selCategoryChild !== "__ALL__") {
       chips.push({
         id: "categoryChild",
         label: `카테고리: ${selCategoryParent} › ${selCategoryChild}`,
         onRemove: () => setSelCategoryChild("__ALL__")
       });
     }
-    if (selLabel !== "__ALL__") chips.push({ id: "label", label: `라벨: ${selLabel}`, onRemove: () => setSelLabel("__ALL__") });
+    if (dataSource === "weble" && selLabel !== "__ALL__") chips.push({ id: "label", label: `라벨: ${selLabel}`, onRemove: () => setSelLabel("__ALL__") });
     if (qAll.trim()) chips.push({ id: "qAll", label: `검색: "${qAll.trim()}"`, onRemove: () => setQAll("") });
     if (qItem.trim()) chips.push({ id: "qItem", label: `상품명: "${qItem.trim()}"`, onRemove: () => setQItem("") });
-    if (competitionOrder === "asc") {
+    if (dataSource === "weble" && competitionOrder === "asc") {
       chips.push({ id: "competitionAsc", label: "정렬: 경쟁률 낮은순", onRemove: () => setCompetitionOrder("default") });
-    } else if (competitionOrder === "desc") {
+    } else if (dataSource === "weble" && competitionOrder === "desc") {
       chips.push({ id: "competitionDesc", label: "정렬: 경쟁률 높은순", onRemove: () => setCompetitionOrder("default") });
     }
     return chips;
   }, [
+    dataSource,
     excludePaybackLabel,
     selMedia,
     selStatus,
@@ -1263,15 +1378,39 @@ export default function App() {
           <div className="sidebar__logo" />
           <div>
             <div className="sidebar__title">Weble Campaigns</div>
-            <div className="sidebar__subtitle">전체 페이지 + 필터 view</div>
+            <div className="sidebar__subtitle">Weble · 리뷰노트 캠페인</div>
           </div>
         </div>
+
+        <section className="section">
+          <div className="section__head">
+            <div className="section__title">데이터 소스</div>
+          </div>
+          <div className="section__body sourceTabs">
+            <button
+              type="button"
+              className={dataSource === "weble" ? "tab tab--active" : "tab"}
+              onClick={() => setDataSource("weble")}
+            >
+              Weble (Revu)
+            </button>
+            <button
+              type="button"
+              className={dataSource === "reviewnote" ? "tab tab--active" : "tab"}
+              onClick={() => setDataSource("reviewnote")}
+            >
+              리뷰노트
+            </button>
+          </div>
+        </section>
 
         <section className="section">
           <div className="section__head">
             <div className="section__title">인증</div>
           </div>
           <div className="section__body">
+            {dataSource === "weble" ? (
+              <>
             <div className="field">
               <label>Bearer Token (저장 안 함)</label>
               <input
@@ -1304,6 +1443,44 @@ export default function App() {
             <div className="muted" style={{ fontSize: 12 }}>
               주의: “기억하기”를 켜면 이 PC/브라우저의 localStorage에 저장됩니다.
             </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label>Cookie (개발자도구에서 복사)</label>
+                  <textarea
+                    className="input"
+                    style={{ minHeight: 88, resize: "vertical", paddingTop: 8 }}
+                    value={reviewnoteCookie}
+                    onChange={(e) => setReviewnoteCookie(e.target.value)}
+                    placeholder="token=…; reviewNoteSession=… 등 한 줄"
+                  />
+                </div>
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-soft)" }}>
+                    <input
+                      type="checkbox"
+                      checked={rememberRnCookie}
+                      onChange={(e) => setRememberRnCookie(e.target.checked)}
+                    />
+                    쿠키 기억하기 (선택)
+                  </label>
+                  <button
+                    className="btn btn--danger btn--sm"
+                    type="button"
+                    onClick={() => {
+                      setReviewnoteCookie("");
+                      setRememberRnCookie(false);
+                    }}
+                  >
+                    쿠키 삭제
+                  </button>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Cookie 헤더는 브라우저에서 설정할 수 없어 프록시로 전달합니다.
+                </div>
+              </>
+            )}
           </div>
         </section>
 
@@ -1315,16 +1492,60 @@ export default function App() {
             </button>
           </div>
           <div className="section__body">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-soft)" }}>
-                <input
-                  type="checkbox"
-                  checked={excludePaybackLabel}
-                  onChange={(e) => setExcludePaybackLabel(e.target.checked)}
-                />
-                라벨에 “페이백” 포함된 캠페인 제외
-              </label>
-            </div>
+            {dataSource === "weble" ? (
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-soft)" }}>
+                  <input
+                    type="checkbox"
+                    checked={excludePaybackLabel}
+                    onChange={(e) => setExcludePaybackLabel(e.target.checked)}
+                  />
+                  라벨에 “페이백” 포함된 캠페인 제외
+                </label>
+              </div>
+            ) : (
+              <>
+                <div className="field">
+                  <label>channel</label>
+                  <input
+                    className="input"
+                    value={rnChannel}
+                    onChange={(e) => setRnChannel(e.target.value)}
+                    placeholder="BLOG"
+                  />
+                </div>
+                <div className="field">
+                  <label>sort</label>
+                  <input
+                    className="input"
+                    value={rnSort}
+                    onChange={(e) => setRnSort(e.target.value)}
+                    placeholder="DELIVERY"
+                  />
+                </div>
+                <div className="field">
+                  <label>limit</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={rnLimit}
+                    onChange={(e) => setRnLimit(Number(e.target.value) || 16)}
+                  />
+                </div>
+                <div className="field">
+                  <label>시작 page (0부터)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    value={rnStartPage}
+                    onChange={(e) => setRnStartPage(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </div>
+              </>
+            )}
 
             <div className="field">
               <label>상품명 키워드</label>
@@ -1336,7 +1557,7 @@ export default function App() {
               />
             </div>
 
-            {filterOptions.medias.length > 1 ? (
+            {dataSource === "weble" && filterOptions.medias.length > 1 ? (
               <div className="field">
                 <label>매체 (media)</label>
                 <select className="select" value={selMedia} onChange={(e) => setSelMedia(e.target.value)}>
@@ -1350,7 +1571,7 @@ export default function App() {
               </div>
             ) : null}
 
-            {filterOptions.statuses.length > 1 ? (
+            {dataSource === "weble" && filterOptions.statuses.length > 1 ? (
               <div className="field">
                 <label>상태 (status)</label>
                 <select className="select" value={selStatus} onChange={(e) => setSelStatus(e.target.value)}>
@@ -1364,7 +1585,7 @@ export default function App() {
               </div>
             ) : null}
 
-            {filterOptions.activeChoices.hasActiveTrue && filterOptions.activeChoices.hasActiveFalse ? (
+            {dataSource === "weble" && filterOptions.activeChoices.hasActiveTrue && filterOptions.activeChoices.hasActiveFalse ? (
               <div className="field">
                 <label>활성 (active)</label>
                 <select
@@ -1378,6 +1599,7 @@ export default function App() {
                 </select>
               </div>
             ) : null}
+            {dataSource === "weble" ? (
             <div className="field">
               <label>라벨 (label)</label>
               <select className="select" value={selLabel} onChange={(e) => setSelLabel(e.target.value)}>
@@ -1389,7 +1611,9 @@ export default function App() {
                 ))}
               </select>
             </div>
+            ) : null}
 
+            {dataSource === "weble" ? (
             <div className="field">
               <label>경쟁률 정렬</label>
               <select
@@ -1402,6 +1626,7 @@ export default function App() {
                 <option value="desc">높은순 (신청/모집 비율)</option>
               </select>
             </div>
+            ) : null}
           </div>
         </section>
 
@@ -1438,8 +1663,8 @@ export default function App() {
       <main className="main">
         <header className="topbar">
           <div className="topbar__title">
-            <h1>Weble 캠페인 전체조회</h1>
-            <span className="muted">/v1/campaigns</span>
+            <h1>{dataSource === "weble" ? "Weble 캠페인 전체조회" : "리뷰노트 캠페인"}</h1>
+            <span className="muted">{dataSource === "weble" ? "/v1/campaigns" : "/api/v2/campaigns"}</span>
           </div>
           <div className="row">
             <span className={statusPillClass(status)}>
@@ -1466,6 +1691,7 @@ export default function App() {
             <button className="btn btn--ghost btn--sm" onClick={resetFilters} type="button">
               필터 초기화
             </button>
+            {dataSource === "weble" ? (
             <label className="topControls__check">
               <input
                 type="checkbox"
@@ -1474,6 +1700,7 @@ export default function App() {
               />
               라벨 “페이백” 제외
             </label>
+            ) : null}
             <input
               className="input"
               value={qItem}
@@ -1481,7 +1708,7 @@ export default function App() {
               placeholder="상품명 키워드"
               style={{ minWidth: 220 }}
             />
-            {filterOptions.labels.length > 1 ? (
+            {dataSource === "weble" && filterOptions.labels.length > 1 ? (
               <select className="select" value={selLabel} onChange={(e) => setSelLabel(e.target.value)}>
                 <option value="__ALL__">라벨 전체</option>
                 {filterOptions.labels.map((l) => (
@@ -1491,7 +1718,7 @@ export default function App() {
                 ))}
               </select>
             ) : null}
-            {filterOptions.medias.length > 1 ? (
+            {dataSource === "weble" && filterOptions.medias.length > 1 ? (
               <select className="select" value={selMedia} onChange={(e) => setSelMedia(e.target.value)}>
                 <option value="__ALL__">매체 전체</option>
                 {filterOptions.medias.map((m) => (
@@ -1501,7 +1728,7 @@ export default function App() {
                 ))}
               </select>
             ) : null}
-            {filterOptions.statuses.length > 1 ? (
+            {dataSource === "weble" && filterOptions.statuses.length > 1 ? (
               <select className="select" value={selStatus} onChange={(e) => setSelStatus(e.target.value)}>
                 <option value="__ALL__">상태 전체</option>
                 {filterOptions.statuses.map((s) => (
@@ -1511,16 +1738,18 @@ export default function App() {
                 ))}
               </select>
             ) : null}
-            <select
-              className="select"
-              value={competitionOrder}
-              onChange={(e) => setCompetitionOrder(e.target.value as CompetitionOrder)}
-              title="신청 수 ÷ 모집 인원"
-            >
-              <option value="default">경쟁률: 기본순</option>
-              <option value="asc">경쟁률: 낮은순</option>
-              <option value="desc">경쟁률: 높은순</option>
-            </select>
+            {dataSource === "weble" ? (
+              <select
+                className="select"
+                value={competitionOrder}
+                onChange={(e) => setCompetitionOrder(e.target.value as CompetitionOrder)}
+                title="신청 수 ÷ 모집 인원"
+              >
+                <option value="default">경쟁률: 기본순</option>
+                <option value="asc">경쟁률: 낮은순</option>
+                <option value="desc">경쟁률: 높은순</option>
+              </select>
+            ) : null}
           </div>
 
           <div className="toolbar">
@@ -1532,40 +1761,48 @@ export default function App() {
             />
             <div className="row" style={{ flex: 1, justifyContent: "flex-end" }}>
               <span className="muted">
-                결과 <strong style={{ color: "var(--text)" }}>{orderedFiltered.length}</strong>{" "}
-                <span className="muted">/ 원본 {items.length}</span>
+                결과{" "}
+                <strong style={{ color: "var(--text)" }}>
+                  {dataSource === "weble" ? orderedFiltered.length : rnFiltered.length}
+                </strong>{" "}
+                <span className="muted">
+                  / 원본 {dataSource === "weble" ? items.length : reviewnoteItems.length}
+                </span>
               </span>
             </div>
           </div>
 
-          <div className="tabs">
-            <button
-              className={selCategoryParent === "__ALL__" ? "tab tab--active" : "tab"}
-              onClick={() => {
-                setSelCategoryParent("__ALL__");
-                setSelCategoryChild("__ALL__");
-              }}
-              type="button"
-            >
-              전체
-            </button>
-            {filterOptions.categoryParents.map((p) => (
+          {dataSource === "weble" ? (
+            <div className="tabs">
               <button
-                key={p}
-                className={selCategoryParent === p ? "tab tab--active" : "tab"}
+                className={selCategoryParent === "__ALL__" ? "tab tab--active" : "tab"}
                 onClick={() => {
-                  setSelCategoryParent(p);
+                  setSelCategoryParent("__ALL__");
                   setSelCategoryChild("__ALL__");
                 }}
                 type="button"
-                title={p}
               >
-                {p}
+                전체
               </button>
-            ))}
-          </div>
+              {filterOptions.categoryParents.map((p) => (
+                <button
+                  key={p}
+                  className={selCategoryParent === p ? "tab tab--active" : "tab"}
+                  onClick={() => {
+                    setSelCategoryParent(p);
+                    setSelCategoryChild("__ALL__");
+                  }}
+                  type="button"
+                  title={p}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
-          {selCategoryParent !== "__ALL__" &&
+          {dataSource === "weble" &&
+          selCategoryParent !== "__ALL__" &&
           (filterOptions.categoryChildrenByParent.get(selCategoryParent)?.length ?? 0) > 0 ? (
             <div className="tabs tabs--sub">
               <button
@@ -1608,15 +1845,20 @@ export default function App() {
           {status === "error" ? <div className="alert">조회 에러: {error}</div> : null}
 
           <div className="cardsCard">
-            {orderedFiltered.length === 0 ? (
+            {(dataSource === "weble" ? orderedFiltered.length === 0 : rnFiltered.length === 0) ? (
               <div className="empty">
-                {items.length === 0
-                  ? "아직 조회된 데이터가 없습니다. 우측 상단의 ‘전체 페이지 조회’를 눌러주세요."
-                  : "필터 결과가 없습니다. 좌측 사이드바에서 필터를 완화해보세요."}
+                {dataSource === "weble"
+                  ? items.length === 0
+                    ? "아직 조회된 데이터가 없습니다. 우측 상단의 ‘전체 페이지 조회’를 눌러주세요."
+                    : "필터 결과가 없습니다. 좌측 사이드바에서 필터를 완화해보세요."
+                  : reviewnoteItems.length === 0
+                    ? "리뷰노트: 쿠키를 붙인 뒤 ‘전체 페이지 조회’를 눌러주세요."
+                    : "필터 결과가 없습니다. 검색어를 완화해보세요."}
               </div>
             ) : (
               <div className="cardGrid">
-                {orderedFiltered.map((c) => {
+                {dataSource === "weble"
+                  ? orderedFiltered.map((c) => {
                   const id = safeString(c.id);
                   const item = safeString(c.item);
                   const label = safeString((c as Record<string, unknown>).label);
@@ -1679,7 +1921,11 @@ export default function App() {
 
                   return (
                     <div key={id + safeString((c as Record<string, unknown>).hash)} className="campaignCard">
-                      <button className="campaignCard__click" onClick={() => setSelected(c)} title="상세 보기" />
+                      <button
+                        className="campaignCard__click"
+                        onClick={() => setSelected({ kind: "weble", campaign: c })}
+                        title="상세 보기"
+                      />
                       <div className="campaignCard__thumb">
                         {thumb ? <img src={thumb} alt={item || id} loading="lazy" /> : <div className="thumbPlaceholder">NO IMAGE</div>}
                       </div>
@@ -1789,7 +2035,53 @@ export default function App() {
                       </div>
                     </div>
                   );
-                })}
+                })
+                  : rnFiltered.map((r, ri) => {
+                      const tid = rnNumericId(r);
+                      const ttitle = rnTitle(r);
+                      const tthumb = rnThumb(r);
+                      const rk = tid !== null ? `rn-${tid}` : `rn-i-${ri}-${ttitle.slice(0, 24)}`;
+                      return (
+                        <div key={rk} className="campaignCard">
+                          <button
+                            className="campaignCard__click"
+                            type="button"
+                            onClick={() => setSelected({ kind: "reviewnote", row: r })}
+                            title="상세 보기"
+                          />
+                          <div className="campaignCard__thumb">
+                            {tthumb ? (
+                              <img src={tthumb} alt={ttitle || rk} loading="lazy" />
+                            ) : (
+                              <div className="thumbPlaceholder">NO IMAGE</div>
+                            )}
+                          </div>
+                          <div className="campaignCard__body">
+                            <div className="campaignCard__top">
+                              <div className="campaignCard__title" title={ttitle || undefined}>
+                                {ttitle || <span className="muted">제목 없음</span>}
+                              </div>
+                            </div>
+                            {tid !== null ? (
+                              <div className="campaignCard__actions">
+                                <a
+                                  className="btn btn--sm"
+                                  href={`https://www.reviewnote.co.kr/campaign/${tid}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  리뷰노트에서 보기
+                                </a>
+                              </div>
+                            ) : null}
+                            <div className="muted" style={{ fontSize: 12 }}>
+                              필드 매핑은 API 응답에 따라 조정됩니다.
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
               </div>
             )}
           </div>
@@ -1804,14 +2096,25 @@ export default function App() {
               <div>
                 <div className="drawer__title">캠페인 상세</div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  id={safeString(selected.id)} · {safeString(selected.item)}
+                  {selected.kind === "weble" ? (
+                    <>
+                      id={safeString(selected.campaign.id)} · {safeString(selected.campaign.item)}
+                    </>
+                  ) : (
+                    <>
+                      리뷰노트 · id={safeString(rnNumericId(selected.row))} · {rnTitle(selected.row) || "-"}
+                    </>
+                  )}
                 </div>
               </div>
               <div className="row">
                 <button
                   className="btn btn--sm"
                   onClick={() => {
-                    const text = JSON.stringify(selected, null, 2);
+                    const text =
+                      selected.kind === "weble"
+                        ? JSON.stringify(selected.campaign, null, 2)
+                        : JSON.stringify(selected.row, null, 2);
                     void navigator.clipboard?.writeText(text);
                   }}
                 >
@@ -1823,8 +2126,29 @@ export default function App() {
               </div>
             </div>
             <div className="drawer__body">
-              {(() => {
-                const base = selected as unknown as Record<string, unknown>;
+              {selected.kind === "reviewnote" ? (
+                <div className="campaignDetail">
+                  <div className="campaignHead">
+                    <h2 className="campaignHead__title">{rnTitle(selected.row) || "-"}</h2>
+                  </div>
+                  {rnNumericId(selected.row) !== null ? (
+                    <div className="campaignCard__actions" style={{ marginBottom: 12 }}>
+                      <a
+                        className="btn btn--sm"
+                        href={`https://www.reviewnote.co.kr/campaign/${rnNumericId(selected.row)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        리뷰노트에서 보기
+                      </a>
+                    </div>
+                  ) : null}
+                  <MiniValueView value={selected.row} depth={0} maxDepth={12} path="reviewnote.row" expandAll />
+                </div>
+              ) : null}
+              {selected.kind === "weble" ? (
+              (() => {
+                const base = selected.campaign as unknown as Record<string, unknown>;
                 const detail = selectedDetail ?? null;
                 const c = (detail ? { ...base, ...detail } : base) as Record<string, unknown>;
 
@@ -2016,7 +2340,7 @@ export default function App() {
                     ) : null}
                   </div>
                 );
-              })()}
+              })()) : null}
             </div>
           </aside>
         </>

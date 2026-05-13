@@ -134,6 +134,13 @@ a:hover {
   gap: 10px;
 }
 
+.sourceTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .field {
   display: grid;
   gap: 6px;

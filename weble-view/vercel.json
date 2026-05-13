@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/weble/(.*)", "destination": "/api/weble?path=/$1" },
+    { "source": "/api/reviewnote/(.*)", "destination": "/api/reviewnote?path=/$1" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
