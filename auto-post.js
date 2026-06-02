@@ -1,7 +1,8 @@
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
-const { urls, maxPostsPerDay, USER_ID } = require("./core/config");
+const { urls: fallbackUrls, maxPostsPerDay, USER_ID, myBlogId } = require("./core/config");
+const { fetchLatestBlogUrls } = require("./core/utils");
 
 function formatError(err) {
   if (!err) return "Unknown error";
@@ -32,10 +33,9 @@ process.on("uncaughtException", (err) => {
 
 // 실행 전 기존 Chrome for Testing 프로세스 종료 (다른 스크립트가 사용 중이면 스킵)
 const BROWSER_SCRIPTS = [
-  "reviewnote-login.js", "revu-login.js",
-  "save-session-revu.js",
-  "naver-login.js", "naver-like.js",
-  "naver-collect-commenters.js",
+  "login-note.js",
+  "login-revu.js",
+  "login-naver.js", "naver-like.js",
   "naver-blog-post.js",
 ];
 try {
@@ -61,7 +61,7 @@ function getCookieHeader() {
       [
         "storageState.json을 읽지 못했습니다.",
         "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-        "  npm run login",
+        "  npm run login-note",
       ].join("\n"),
       {
       cause: err,
@@ -92,10 +92,12 @@ const API_BASE =
   "&orderBy=%7B%22createdAt%22:%22desc%22%7D&communityType=friend&category=all" +
   `&currentUserId=${USER_ID}`;
 
-async function getTodayPostCount() {
+// 한 번의 API 순회로 (1) 첫 페이지 내 글 존재 여부 (2) 오늘 작성 수를 함께 조회
+async function getReviewnoteStatus() {
   const today = new Date().toISOString().slice(0, 10);
   const headers = { Cookie: getCookieHeader() };
   let count = 0;
+  let recentHasMyPost = false;
   for (let page = 1; page <= 500; page++) {
     const url = `${API_BASE}&page=${page}&limit=20`;
     let res;
@@ -103,7 +105,7 @@ async function getTodayPostCount() {
       res = await fetch(url, { headers });
     } catch (err) {
       const e = new Error("Reviewnote API 요청 실패 (fetch)", { cause: err });
-      logError("getTodayPostCount.fetch", e, { url, page });
+      logError("getReviewnoteStatus.fetch", e, { url, page });
       throw e;
     }
     if (!res.ok) {
@@ -112,7 +114,7 @@ async function getTodayPostCount() {
           [
             "[오류] Reviewnote 세션 만료",
             "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-            "  npm run login",
+            "  npm run login-note",
           ].join("\n"),
         );
       }
@@ -124,7 +126,7 @@ async function getTodayPostCount() {
         // ignore
       }
       const e = new Error(`Reviewnote API error: ${res.status}`);
-      logError("getTodayPostCount.http", e, { url, page, status: res.status, bodyPreview });
+      logError("getReviewnoteStatus.http", e, { url, page, status: res.status, bodyPreview });
       throw e;
     }
     let data;
@@ -132,18 +134,22 @@ async function getTodayPostCount() {
       data = await res.json();
     } catch (err) {
       const e = new Error("Reviewnote API 응답 JSON 파싱 실패", { cause: err });
-      logError("getTodayPostCount.json", e, { url, page, status: res.status });
+      logError("getReviewnoteStatus.json", e, { url, page, status: res.status });
       throw e;
     }
-    if (!data.objects || data.objects.length === 0) return count;
+    if (!data.objects || data.objects.length === 0) break;
+    // 첫 페이지(최근글) 전체에서 내 글 존재 여부 확인 (날짜 조기 종료 이전)
+    if (page === 1) recentHasMyPost = data.objects.some((p) => p.userId === USER_ID);
+    let stop = false;
     for (const post of data.objects) {
-      if (!post.createdAt.startsWith(today)) return count;
+      if (!post.createdAt.startsWith(today)) { stop = true; break; }
       if (post.userId === USER_ID) count++;
     }
-    if (count >= maxPostsPerDay) return count;
-    if (data.objects.length < 20) return count;
+    if (stop) break;
+    if (count >= maxPostsPerDay) break;
+    if (data.objects.length < 20) break;
   }
-  return count;
+  return { count, recentHasMyPost };
 }
 
 function pick(arr) {
@@ -172,26 +178,13 @@ const titles = [
   "부담 없이 편하게 대화 나눌 이웃 환영해요 🩷",
 ];
 
-function shouldPost() {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(__dirname, "reviewnote/reviewnote-check.js")], {
-      stdio: "ignore",
-    });
-    child.on("error", (err) => {
-      logError("shouldPost.spawn", err, { script: "reviewnote/reviewnote-check.js" });
-      resolve(false);
-    });
-    child.on("close", (code) => resolve(code === 1));
-  });
-}
-
 function shouldRevuPost() {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(__dirname, "revu/revu-check.js")], {
+    const child = spawn(process.execPath, [path.join(__dirname, "revu/check-revu.js")], {
       stdio: "ignore",
     });
     child.on("error", (err) => {
-      logError("shouldRevuPost.spawn", err, { script: "revu/revu-check.js" });
+      logError("shouldRevuPost.spawn", err, { script: "revu/check-revu.js" });
       resolve(false);
     });
     child.on("close", (code) => resolve(code === 1));
@@ -202,11 +195,11 @@ function runPost(title, url) {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [path.join(__dirname, "reviewnote/reviewnote-post.js"), title, url, "블로그"],
+      [path.join(__dirname, "reviewnote/post-note.js"), title, url, "블로그"],
       { stdio: "inherit" }
     );
     child.on("error", (err) => {
-      logError("runPost.spawn", err, { script: "reviewnote/reviewnote-post.js", title, url });
+      logError("runPost.spawn", err, { script: "reviewnote/post-note.js", title, url });
       resolve(1);
     });
     child.on("close", (code) => {
@@ -220,11 +213,11 @@ function runRevuPost(title, url) {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [path.join(__dirname, "revu/revu-post.js"), title, url],
+      [path.join(__dirname, "revu/post-revu.js"), title, url],
       { stdio: "inherit" }
     );
     child.on("error", (err) => {
-      logError("runRevuPost.spawn", err, { script: "revu/revu-post.js", title, url });
+      logError("runRevuPost.spawn", err, { script: "revu/post-revu.js", title, url });
       resolve(1);
     });
     child.on("close", (code) => {
@@ -234,45 +227,56 @@ function runRevuPost(title, url) {
   });
 }
 
+// revu.net: 1회 체크 후 필요하면 1회 게시
+async function handleRevu(urls) {
+  const revuNeedPost = await shouldRevuPost();
+  if (!revuNeedPost) {
+    console.log("[revu.net] 최근 페이지에 내 글 있음 - 완료");
+    return;
+  }
+  console.log("[revu.net] 최근 페이지에 내 글 없음 - 포스팅");
+  const revuCode = await runRevuPost(pick(titles), pick(urls));
+  if (revuCode !== 0) console.log("[revu.net] 포스팅 실패");
+}
+
+// reviewnote: API 1회 조회 후 필요하면 1회 게시
+async function handleReviewnote(urls) {
+  const { count, recentHasMyPost } = await getReviewnoteStatus();
+  if (recentHasMyPost) {
+    console.log("최근 페이지에 내 글이 있음 - 완료");
+    return;
+  }
+  if (count >= maxPostsPerDay) {
+    console.log(`오늘 글 작성 한도(${maxPostsPerDay}회) 도달 - 완료`);
+    return;
+  }
+  console.log(`[오늘 ${count + 1}/${maxPostsPerDay}회] 최근 페이지에 내 글 없음 - 포스팅`);
+  const exitCode = await runPost(pick(titles), pick(urls));
+  if (exitCode !== 0) {
+    console.error(
+      [
+        "[reviewnote] 포스팅 실패 (세션 만료 가능)",
+        "  → 아래 명령 1개 실행 후 다시 시도하세요:",
+        "  npm run login-note",
+      ].join("\n"),
+    );
+  }
+}
+
 (async () => {
   try {
-    // revu.net: 1회 체크 후 필요하면 1회 게시
-    const revuNeedPost = await shouldRevuPost();
-    if (!revuNeedPost) {
-      console.log("[revu.net] 최근 페이지에 내 글 있음 - 완료");
+    // RSS에서 최신 글 3개 가져오기 (실패 시 config.urls 폴백)
+    const latestUrls = await fetchLatestBlogUrls(myBlogId, 3);
+    const urls = latestUrls.length ? latestUrls : fallbackUrls;
+    if (latestUrls.length) {
+      console.log("[urls] RSS 최신글 사용:");
+      latestUrls.forEach((u, i) => console.log(`  ${i + 1}. ${u}`));
     } else {
-      console.log("[revu.net] 최근 페이지에 내 글 없음 - 포스팅");
-      const revuCode = await runRevuPost(pick(titles), pick(urls));
-      if (revuCode !== 0) console.log("[revu.net] 포스팅 실패");
-      else console.log("[revu.net] 글 작성 완료!");
+      console.log("[urls] RSS 실패 - config.urls 폴백 사용");
     }
 
-    // reviewnote: 1회 체크 후 필요하면 1회 게시
-    const needPost = await shouldPost();
-    if (!needPost) {
-      console.log("최근 페이지에 내 글이 있음 - 완료");
-      return;
-    }
-
-    const todayCount = await getTodayPostCount();
-    if (todayCount >= maxPostsPerDay) {
-      console.log(`오늘 글 작성 한도(${maxPostsPerDay}회) 도달 - 완료`);
-      return;
-    }
-
-    console.log(`[오늘 ${todayCount + 1}/${maxPostsPerDay}회] 최근 페이지에 내 글 없음 - 포스팅`);
-    const exitCode = await runPost(pick(titles), pick(urls));
-    if (exitCode !== 0) {
-      console.error(
-        [
-          "[reviewnote] 포스팅 실패 (세션 만료 가능)",
-          "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-          "  npm run login",
-        ].join("\n"),
-      );
-    } else {
-      console.log("[reviewnote] 글 작성 완료!");
-    }
+    // 독립적인 revu / reviewnote 흐름을 병렬 실행
+    await Promise.all([handleRevu(urls), handleReviewnote(urls)]);
   } catch (err) {
     logError("auto-post.main", err);
     process.exitCode = 1;

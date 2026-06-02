@@ -38,7 +38,7 @@ const WRITE_URL = "https://www.reviewnote.co.kr/communities/friend/new";
       [
         "  → 세션이 만료되었을 수 있습니다.",
         "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-        "  npm run login",
+        "  npm run login-note",
       ].join("\n"),
     );
     await browser.close();

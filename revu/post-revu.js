@@ -18,7 +18,7 @@ const SESSION_FILE = "storageState-revu.json";
       [
         `[revu.net] 세션 파일(${SESSION_FILE})이 없습니다.`,
         "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-        "  npm run save-session-revu",
+        "  npm run login-revu",
       ].join("\n"),
     );
     process.exit(1);
@@ -39,7 +39,7 @@ const SESSION_FILE = "storageState-revu.json";
       [
         "  → 세션이 만료되었을 수 있습니다.",
         "  → 아래 명령 1개 실행 후 다시 시도하세요:",
-        "  npm run save-session-revu",
+        "  npm run login-revu",
       ].join("\n"),
     );
     await browser.close();

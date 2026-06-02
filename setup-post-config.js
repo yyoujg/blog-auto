@@ -5,7 +5,7 @@
  *
  * 사용법:
  *   npm run setup-blog
- *   npm run setup-blog-sheet -- <placeUrl> [캠페인유형]
+ *   npm run setup-blog -- <placeUrl> [캠페인유형]
  */
 const fs = require("fs");
 const path = require("path");
