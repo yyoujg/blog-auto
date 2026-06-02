@@ -3,3 +3,9 @@ node_modules/
 .DS_Store
 images/
 
+# 세션/인증 파일 (로그인 스크립트로 재생성)
+storageState.json
+storageState-revu.json
+naverState.json
+webleState.json
+
