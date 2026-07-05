@@ -15,6 +15,8 @@
     "blog-login": "node naver/naver-blog-post.js --login",
     "like": "node naver/naver-like.js",
     "reply-comments": "node naver/naver-reply-comments.js",
+    "reply-comments-all": "node naver/naver-reply-comments.js --all",
+    "set-commenter-group": "node naver/naver-set-commenter-group.js",
     "check-note": "node reviewnote/check-note.js",
     "post-note": "node reviewnote/post-note.js",
     "check-revu": "node revu/check-revu.js",

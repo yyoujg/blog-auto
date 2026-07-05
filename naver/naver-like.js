@@ -81,6 +81,8 @@ process.on("SIGINT", () => {
   let totalLiked = 0;
   let totalSkipped = 0;
   let currentPage = startPage;
+  let zeroLikePages = 0;
+  const ZERO_LIKE_LIMIT = 3;
 
   while (!stopping) {
     const pageUrl = BLOG_HOME_BASE + currentPage;
@@ -158,6 +160,17 @@ process.on("SIGINT", () => {
     }
 
     console.log(`${currentPage}페이지 완료: 공감 ${pageLiked}개, 건너뜀 ${pageSkipped}개`);
+
+    if (pageLiked === 0) {
+      zeroLikePages++;
+      if (zeroLikePages >= ZERO_LIKE_LIMIT) {
+        console.log(`\n새 공감 없는 페이지 ${ZERO_LIKE_LIMIT}회 연속 — 더 누를 글이 없어 종료합니다.`);
+        break;
+      }
+    } else {
+      zeroLikePages = 0;
+    }
+
     currentPage++;
   }
 

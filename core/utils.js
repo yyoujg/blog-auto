@@ -318,6 +318,24 @@ function patchSessionCookies(statePath) {
  * 429 시 retryDelay 만큼 대기 후 1회 재시도
  * AI 모두 실패하면 null 반환
  */
+/**
+ * AI 답글 응답에서 지시문 echo 머리말/코드블록/감싼 따옴표 제거
+ */
+function sanitizeComment(text) {
+  if (!text) return text;
+  let t = text.trim();
+  t = t.replace(/^```[\s\S]*?\n/, "").replace(/```\s*$/, "").trim();
+  const stripped = t
+    .replace(
+      /^["'“‘]?\s*(?:네[,.]?\s*)?[^:\n]*?(?:출력|작성|답글|답변|하셨|말씀|드릴게요|드리겠|할게요)[^:\n]*:\s*/u,
+      "",
+    )
+    .trim();
+  t = stripped || t;
+  t = t.replace(/^["'“‘]+/, "").replace(/["'”’]+$/, "").trim();
+  return t;
+}
+
 async function generateBlogComment(prompt) {
   function parseRetryDelay(errMsg) {
     const m = (errMsg || "").match(/retry in (\d+(?:\.\d+)?)s/i)
@@ -334,7 +352,7 @@ async function generateBlogComment(prompt) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const text = sanitizeComment(result.response.text());
         if (text) return text;
       } catch (e) {
         const delay = parseRetryDelay(e.message);
@@ -359,7 +377,7 @@ async function generateBlogComment(prompt) {
         max_tokens: 120,
         messages: [{ role: "user", content: prompt }],
       });
-      return response.content[0].text.trim();
+      return sanitizeComment(response.content[0].text);
     } catch (e) {
       console.log(`  Claude 실패 (${e.message.slice(0, 60)})`);
     }
@@ -369,10 +387,10 @@ async function generateBlogComment(prompt) {
   try {
     console.log("  AI 모두 실패 - Claude Code CLI로 대체");
     const { execSync } = require("child_process");
-    const result = execSync(
+    const result = sanitizeComment(execSync(
       `claude -p ${JSON.stringify(prompt)} --output-format text`,
-      { timeout: 30000, encoding: "utf-8", env: process.env }
-    ).trim();
+      { timeout: 30000, encoding: "utf-8", env: process.env, cwd: __dirname }
+    ));
     if (result) return result;
   } catch (e) {
     console.log(`  Claude Code CLI 실패 (${e.message.slice(0, 60)})`);
@@ -382,7 +400,36 @@ async function generateBlogComment(prompt) {
   return null;
 }
 
+/**
+ * 네이버 블로그 RSS에서 최신 글 URL N개 반환 (실패 시 빈 배열)
+ */
+async function fetchLatestBlogUrls(blogId, count = 3) {
+  try {
+    const res = await fetch(`https://rss.blog.naver.com/${blogId}.xml`);
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const urls = [];
+    const itemRe = /<item>([\s\S]*?)<\/item>/g;
+    let m;
+    while ((m = itemRe.exec(xml)) !== null && urls.length < count) {
+      const block = m[1];
+      const guid = block.match(/<guid>([\s\S]*?)<\/guid>/);
+      let url = guid ? guid[1].trim() : null;
+      if (!url) {
+        const link = block.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/);
+        url = link ? link[1].trim() : null;
+      }
+      if (url) urls.push(url.split("?")[0]);
+    }
+    return urls;
+  } catch (_) {
+    return [];
+  }
+}
+
 module.exports = {
+  fetchLatestBlogUrls,
+  sanitizeComment,
   pickFirstVisibleLocator,
   debugDump,
   sleep,

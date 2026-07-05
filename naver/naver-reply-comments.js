@@ -19,6 +19,8 @@ const NAVER_STATE_PATH = path.join(__dirname, "../naverState.json");
 const REPLIED_PATH = path.join(__dirname, "../replied-comments.json");
 const COLLAB_PATH = path.join(__dirname, "../collab-proposals.json");
 const MY_BLOG_ID = "andn8740";
+const MY_NICKNAME = "쑥쑥아리"; // 블로그 주인(본인) 닉네임
+const MY_ALIASES = ["쑥쑥아리", "아리"]; // 댓글에서 이 이름들로 부르면 본인을 칭하는 것
 const COMMENT_LIST_URL = `https://admin.blog.naver.com/${MY_BLOG_ID}/userfilter/commentlist`;
 
 const isDryRun = process.argv.includes("--dry-run");
@@ -85,15 +87,23 @@ function isSpam(text) {
   return SPAM_PATTERNS.some((p) => p.test(text));
 }
 
+// commentNo -> nickname Map (중복 체크 + 닉네임 기록)
 function loadReplied() {
   if (fs.existsSync(REPLIED_PATH)) {
-    return new Set(JSON.parse(fs.readFileSync(REPLIED_PATH, "utf-8")));
+    const data = JSON.parse(fs.readFileSync(REPLIED_PATH, "utf-8"));
+    const map = new Map();
+    for (const item of data) {
+      if (typeof item === "string") map.set(item, null); // 구버전: ID만
+      else if (item && item.commentNo) map.set(item.commentNo, item.nickname || null);
+    }
+    return map;
   }
-  return new Set();
+  return new Map();
 }
 
-function saveReplied(set) {
-  fs.writeFileSync(REPLIED_PATH, JSON.stringify([...set], null, 2), "utf-8");
+function saveReplied(map) {
+  const arr = [...map].map(([commentNo, nickname]) => ({ commentNo, nickname }));
+  fs.writeFileSync(REPLIED_PATH, JSON.stringify(arr, null, 2), "utf-8");
 }
 
 // 관리자 댓글 목록에서 댓글 정보 수집
@@ -165,12 +175,16 @@ async function collectComments(page, maxPages) {
 async function generateReply(nickname, commentText, postTitle) {
   if (isSpam(commentText)) return pickTemplate(commentText);
 
+  const aliasList = MY_ALIASES.map((n) => `"${n}"`).join(", ");
   const prompt = `네이버 블로그에 달린 댓글에 블로그 주인으로서 답글을 작성해주세요.
 
+내 닉네임(블로그 주인 본인): ${MY_NICKNAME}
 포스트 제목: ${postTitle}
 댓글 내용: ${commentText}
 
 규칙:
+- 나는 블로그 주인 본인이며 닉네임은 "${MY_NICKNAME}"입니다. 댓글에서 ${aliasList} 또는 거기에 "님"을 붙여 부르면(예: ${MY_ALIASES.map((n) => `"${n}님"`).join(", ")}) 그건 모두 나(본인)를 부르는 것입니다.
+- 따라서 내 닉네임/별칭을 제3자처럼 칭찬하거나 언급하지 말 것. 칭찬을 받았으면 본인이 받은 칭찬으로 자연스럽게 감사 인사할 것.
 - 자연스럽고 친근한 말투 (~요, ~네요, ~겠어요)
 - 댓글 내용에 구체적으로 반응
 - 1~2문장
@@ -207,14 +221,17 @@ async function replyToComment(page, comment, replyText) {
     await mainFrame.waitForTimeout(3000);
   }
 
-  // data-info 속성으로 댓글 li 찾기
+  // data-info 속성으로 댓글 li 찾기 (lazy-load 대비 최대 8초 대기)
+  // ponytail: 타이밍만 처리. 댓글 페이지네이션/삭제/중첩프레임은 재발 시 추가.
   const commentNo = comment.commentNo;
-  const commentLi = mainFrame.locator(`li[data-info*="commentNo:'${commentNo}'"]`).first();
-
-  if (!(await commentLi.count())) {
+  const selector = `li[data-info*="commentNo:'${commentNo}'"]`;
+  try {
+    await mainFrame.waitForSelector(selector, { timeout: 8000 });
+  } catch {
     console.log(`  댓글 요소 못 찾음 (commentNo: ${commentNo})`);
     return false;
   }
+  const commentLi = mainFrame.locator(selector).first();
 
   await commentLi.scrollIntoViewIfNeeded().catch(() => {});
   await mainFrame.waitForTimeout(500);
@@ -283,6 +300,9 @@ async function replyToComment(page, comment, replyText) {
   return true;
 }
 
+module.exports = { collectComments, MY_BLOG_ID, COMMENT_LIST_URL, NAVER_STATE_PATH };
+
+if (require.main === module)
 (async () => {
   if (isClaudeOnly) {
     process.env.GEMINI_API_KEY = "";
@@ -334,7 +354,7 @@ async function replyToComment(page, comment, replyText) {
   }
 
   // 협업 제안은 answered 처리 (자동 답글 제외)
-  collabComments.forEach((c) => repliedSet.add(c.commentNo));
+  collabComments.forEach((c) => repliedSet.set(c.commentNo, c.nickname));
   if (collabComments.length > 0) saveReplied(repliedSet);
 
   const toReplyFiltered = toReply.filter((c) => !c.isCollab);
@@ -378,10 +398,10 @@ async function replyToComment(page, comment, replyText) {
     const result = await replyToComment(page, comment, replyText);
 
     if (result === "skip") {
-      repliedSet.add(comment.commentNo);
+      repliedSet.set(comment.commentNo, comment.nickname);
       saveReplied(repliedSet);
     } else if (result === true) {
-      repliedSet.add(comment.commentNo);
+      repliedSet.set(comment.commentNo, comment.nickname);
       saveReplied(repliedSet);
       successCount++;
       console.log("  완료!");
