@@ -9,10 +9,6 @@ const sections = [
     ["login-naver", "네이버 세션 저장 -> naverState.json"],
   ]],
   ["3 네이버", [
-    ["blog-gen", "원클릭: 플레이스URL -> 수집+글생성+자동포스팅 (npm run blog-gen -- <url> 레뷰)"],
-    ["setup-blog", "플레이스 URL -> 크롤링 + Claude 글 생성 -> post-config.json (npm run setup-blog -- <url> [캠페인유형])"],
-    ["blog-post", "네이버 블로그 글 작성 + 임시저장 (setup-blog 실행 후)"],
-    ["blog-login", "네이버 블로그 세션 강제 갱신"],
     ["like", "이웃 블로그 포스트 공감 클릭 (Ctrl+C 종료)"],
     ["reply-comments", "댓글에 AI 답댓글 자동 (최대 10개, --limit N)"],
   ]],

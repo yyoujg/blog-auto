@@ -36,7 +36,6 @@ const BROWSER_SCRIPTS = [
   "login-note.js",
   "login-revu.js",
   "login-naver.js", "naver-like.js",
-  "naver-blog-post.js",
 ];
 try {
   const running = execSync("pgrep -fl node 2>/dev/null || true").toString();
