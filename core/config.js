@@ -1,22 +1,20 @@
+require("dotenv").config();
+
 module.exports = {
-  myAuthorName: "쑥쑥아리",
+  myAuthorName: process.env.MY_AUTHOR_NAME,
   maxPostsPerDay: 3,
-  urls: [
-    `https://blog.naver.com/andn8740/224274119487`
-  ],
-  myBlogId: "andn8740",
-    // [설정 1] API 키 및 기준 주소 설정
-  // -------------------------------------------------------------
-  KAKAO_REST_API_KEY : '***REMOVED***',
-  ODSAY_API_KEY : '***REMOVED***',
-  ORIGIN_ADDRESS : '***REMOVED***',
+  urls: process.env.FALLBACK_BLOG_URL ? [process.env.FALLBACK_BLOG_URL] : [],
+  myBlogId: process.env.MY_BLOG_ID,
 
-  // -------------------------------------------------------------
-  // [설정 2] 노션 API 설정
-  // -------------------------------------------------------------
-  NOTION_TOKEN : '***REMOVED***',
-  NOTION_DATABASE_ID : '***REMOVED***',
+  // API 키 및 기준 주소 (.env)
+  KAKAO_REST_API_KEY: process.env.KAKAO_REST_API_KEY,
+  ODSAY_API_KEY: process.env.ODSAY_API_KEY,
+  ORIGIN_ADDRESS: process.env.ORIGIN_ADDRESS,
 
-  USER_ID : '***REMOVED***',
-  REVU_USER_ID: 1442886, // revu.net 수원아리
+  // 노션 API (.env)
+  NOTION_TOKEN: process.env.NOTION_TOKEN,
+  NOTION_DATABASE_ID: process.env.NOTION_DATABASE_ID,
+
+  USER_ID: process.env.USER_ID,
+  REVU_USER_ID: process.env.REVU_USER_ID ? Number(process.env.REVU_USER_ID) : undefined,
 };
