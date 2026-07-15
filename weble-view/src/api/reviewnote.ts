@@ -69,6 +69,56 @@ export function rnNumericId(r: ReviewnoteRow): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+let cachedBuildId: string | null = null;
+
+async function getReviewnoteBuildId(cookie: string, signal?: AbortSignal): Promise<string> {
+  if (cachedBuildId) return cachedBuildId;
+  const res = await fetch(withRnApiBase("/campaigns"), {
+    method: "GET",
+    signal,
+    headers: { accept: "text/html,*/*", "x-reviewnote-cookie": cookie }
+  });
+  const html = await res.text();
+  const m = html.match(/"buildId":"([^"]+)"/);
+  if (!m) throw new Error("리뷰노트 buildId를 찾지 못했습니다.");
+  cachedBuildId = m[1];
+  return cachedBuildId;
+}
+
+export async function fetchReviewnoteCampaignDetail(args: {
+  id: number;
+  cookie: string;
+  signal?: AbortSignal;
+}): Promise<Record<string, unknown>> {
+  const cookie = args.cookie.trim();
+  if (!cookie) throw new Error("리뷰노트 쿠키가 비어 있습니다.");
+
+  const attempt = async () => {
+    const buildId = await getReviewnoteBuildId(cookie, args.signal);
+    const url = withRnApiBase(`/_next/data/${buildId}/campaigns/${args.id}.json?id=${args.id}`);
+    const res = await fetch(url, {
+      method: "GET",
+      signal: args.signal,
+      headers: { accept: "application/json, text/plain, */*", "x-reviewnote-cookie": cookie }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return (await res.json()) as Record<string, unknown>;
+  };
+
+  let json: Record<string, unknown>;
+  try {
+    json = await attempt();
+  } catch {
+    // buildId가 오래되면 404/파싱 실패 -> 재탐지 후 1회 재시도
+    cachedBuildId = null;
+    json = await attempt();
+  }
+
+  const pageProps = (json as { pageProps?: unknown }).pageProps;
+  if (isPlain(pageProps)) return pageProps as Record<string, unknown>;
+  return json;
+}
+
 export async function fetchAllReviewnoteCampaignPages(args: {
   channel: string;
   sort: string;

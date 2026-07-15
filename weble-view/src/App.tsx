@@ -5,6 +5,7 @@ import koLocale from "@fullcalendar/core/locales/ko";
 import { Campaign, fetchAllCampaignPages } from "./api/weble";
 import {
   fetchAllReviewnoteCampaignPages,
+  fetchReviewnoteCampaignDetail,
   rnNumericId,
   rnThumb,
   rnTitle,
@@ -900,7 +901,35 @@ export default function App() {
   useEffect(() => {
     selectedDetailAbortRef.current?.abort();
     setSelectedDetail(null);
-    if (!selected || selected.kind !== "weble") {
+    if (!selected) {
+      setSelectedDetailStatus("idle");
+      return;
+    }
+
+    if (selected.kind === "reviewnote") {
+      const rnId = rnNumericId(selected.row);
+      if (rnId === null) {
+        setSelectedDetailStatus("idle");
+        return;
+      }
+      setSelectedDetailStatus("loading");
+      const ctl = new AbortController();
+      selectedDetailAbortRef.current = ctl;
+      fetchReviewnoteCampaignDetail({ id: rnId, cookie: reviewnoteCookie, signal: ctl.signal })
+        .then((json) => {
+          if (ctl.signal.aborted) return;
+          setSelectedDetail(json);
+          setSelectedDetailStatus("done");
+        })
+        .catch((e) => {
+          if (ctl.signal.aborted) return;
+          console.error(e);
+          setSelectedDetailStatus("error");
+        });
+      return () => ctl.abort();
+    }
+
+    if (selected.kind !== "weble") {
       setSelectedDetailStatus("idle");
       return;
     }
@@ -953,7 +982,7 @@ export default function App() {
       });
 
     return () => ctl.abort();
-  }, [selected, bearerToken]);
+  }, [selected, bearerToken, reviewnoteCookie]);
 
   // Persist token locally (optional)
   useEffect(() => {
@@ -2129,7 +2158,13 @@ export default function App() {
               {selected.kind === "reviewnote" ? (
                 <div className="campaignDetail">
                   <div className="campaignHead">
-                    <h2 className="campaignHead__title">{rnTitle(selected.row) || "-"}</h2>
+                    <div className="campaignHead__titleRow">
+                      <h2 className="campaignHead__title">{rnTitle(selected.row) || "-"}</h2>
+                    </div>
+                    <div className="campaignHead__meta">
+                      {selectedDetailStatus === "loading" ? <span className="pill pill--primary">상세 로딩…</span> : null}
+                      {selectedDetailStatus === "error" ? <span className="pill">상세 로드 실패</span> : null}
+                    </div>
                   </div>
                   {rnNumericId(selected.row) !== null ? (
                     <div className="campaignCard__actions" style={{ marginBottom: 12 }}>
@@ -2143,7 +2178,7 @@ export default function App() {
                       </a>
                     </div>
                   ) : null}
-                  <MiniValueView value={selected.row} depth={0} maxDepth={12} path="reviewnote.row" expandAll />
+                  <MiniValueView value={selectedDetail ?? selected.row} depth={0} maxDepth={12} path="reviewnote.row" expandAll />
                 </div>
               ) : null}
               {selected.kind === "weble" ? (
