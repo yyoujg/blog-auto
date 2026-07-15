@@ -1,10 +1,5 @@
 "use strict";
 
-// ── 세션 TTL ──────────────────────────────────────────────────────────────────
-// 세션 파일 저장 후 이 시간이 지나면 재로그인 확인을 수행한다.
-// 네이버 세션 유효기간은 약 7일이므로 1일 여유를 둔다.
-const SESSION_TTL_MS = 6 * 24 * 60 * 60 * 1000;
-
 // ── 치명적 삽입 타입 ──────────────────────────────────────────────────────────
 // 삽입 실패 후 커서가 엉뚱한 위치에 남지 않도록 강제 재정렬하는 타입 목록.
 const CRITICAL_TYPES = new Set(["image", "map"]);
@@ -47,4 +42,4 @@ const STICKER_INDEX_MAP = {
   "감사합니다":    23,
 };
 
-module.exports = { SESSION_TTL_MS, CRITICAL_TYPES, PAUSE_ON_FAIL_TYPES, STICKER_INDEX_MAP };
+module.exports = { CRITICAL_TYPES, PAUSE_ON_FAIL_TYPES, STICKER_INDEX_MAP };
