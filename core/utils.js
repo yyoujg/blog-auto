@@ -319,12 +319,33 @@ function patchSessionCookies(statePath) {
  * AI 모두 실패하면 null 반환
  */
 /**
+ * 지시문 echo/분석 서론(주로 Claude Code CLI fallback가 붙임) 판정
+ */
+function looksLikeMeta(p) {
+  return /출력(?:하|한|할|합)|지시(?:문|사항|대로)|답글 텍스트만|이건 (?:실제 )?댓글이 아니|먼저 이 ?댓글|프롬프트|규칙(?:에 따라|대로)|^\s*(?:답글|답변|쿼리)[\s,은는이가을를]/.test(p);
+}
+
+/**
+ * 게시 가능한 깨끗한 답글인지 검증 (실패 시 게시하지 않음)
+ */
+function isCleanReply(text) {
+  if (!text) return false;
+  if (text.length > 200) return false;         // 답글은 1~2문장
+  if (/\*\*|```|\n/.test(text)) return false;  // 마크다운/여러 줄
+  return !looksLikeMeta(text);
+}
+
+/**
  * AI 답글 응답에서 지시문 echo 머리말/코드블록/감싼 따옴표 제거
  */
 function sanitizeComment(text) {
   if (!text) return text;
   let t = text.trim();
   t = t.replace(/^```[\s\S]*?\n/, "").replace(/```\s*$/, "").trim();
+  // 여러 문단이면 지시문 echo/분석 서론 문단 제거
+  const paras = t.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const kept = paras.filter((p) => !looksLikeMeta(p));
+  if (kept.length) t = kept.join(" ");
   const stripped = t
     .replace(
       /^["'“‘]?\s*(?:네[,.]?\s*)?[^:\n]*?(?:출력|작성|답글|답변|하셨|말씀|드릴게요|드리겠|할게요)[^:\n]*:\s*/u,
@@ -353,7 +374,7 @@ async function generateBlogComment(prompt) {
       try {
         const result = await model.generateContent(prompt);
         const text = sanitizeComment(result.response.text());
-        if (text) return text;
+        if (isCleanReply(text)) return text;
       } catch (e) {
         const delay = parseRetryDelay(e.message);
         if (delay > 0 && attempt === 0) {
@@ -377,7 +398,8 @@ async function generateBlogComment(prompt) {
         max_tokens: 120,
         messages: [{ role: "user", content: prompt }],
       });
-      return sanitizeComment(response.content[0].text);
+      const text = sanitizeComment(response.content[0].text);
+      if (isCleanReply(text)) return text;
     } catch (e) {
       console.log(`  Claude 실패 (${e.message.slice(0, 60)})`);
     }
@@ -386,12 +408,14 @@ async function generateBlogComment(prompt) {
   // 3순위: Claude Code CLI fallback
   try {
     console.log("  AI 모두 실패 - Claude Code CLI로 대체");
-    const { execSync } = require("child_process");
-    const result = sanitizeComment(execSync(
-      `claude -p ${JSON.stringify(prompt)} --output-format text`,
+    const { execFileSync } = require("child_process");
+    const sys = "너는 네이버 블로그 답글 문장만 생성한다. 서론, 분석, 설명, 따옴표, 마크다운 없이 답글 한 줄만 출력하라.";
+    const result = sanitizeComment(execFileSync(
+      "claude",
+      ["-p", prompt, "--append-system-prompt", sys, "--output-format", "text"],
       { timeout: 30000, encoding: "utf-8", env: process.env, cwd: __dirname }
     ));
-    if (result) return result;
+    if (isCleanReply(result)) return result;
   } catch (e) {
     console.log(`  Claude Code CLI 실패 (${e.message.slice(0, 60)})`);
   }
@@ -430,6 +454,7 @@ async function fetchLatestBlogUrls(blogId, count = 3) {
 module.exports = {
   fetchLatestBlogUrls,
   sanitizeComment,
+  isCleanReply,
   pickFirstVisibleLocator,
   debugDump,
   sleep,

@@ -9,3 +9,8 @@ storageState-revu.json
 naverState.json
 webleState.json
 
+
+# 런타임 로그 (pm2/cron 출력)
+logs/*.err.log
+logs/*.log
+!logs/cron.log

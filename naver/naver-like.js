@@ -178,6 +178,7 @@ process.on("SIGINT", () => {
   console.log(`총 공감: ${totalLiked}개, 총 건너뜀: ${totalSkipped}개`);
   await context.storageState({ path: NAVER_STATE_PATH });
   await browser.close();
+  process.exit(0);
 })().catch((e) => {
   console.error(e);
   process.exit(1);
