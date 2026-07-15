@@ -1476,13 +1476,13 @@ export default function App() {
             ) : (
               <>
                 <div className="field">
-                  <label>Cookie (개발자도구에서 복사)</label>
+                  <label>리뷰노트 쿠키 전체 (개발자도구 → Network → Cookie 헤더 통째로 복사)</label>
                   <textarea
                     className="input"
                     style={{ minHeight: 88, resize: "vertical", paddingTop: 8 }}
                     value={reviewnoteCookie}
                     onChange={(e) => setReviewnoteCookie(e.target.value)}
-                    placeholder="token=…; reviewNoteSession=… 등 한 줄"
+                    placeholder="Cookie 헤더 값 전체를 그대로 붙여넣기 (token=…; reviewNoteSession=…; _ga=… 등 한 줄 통째로)"
                   />
                 </div>
                 <div className="row" style={{ justifyContent: "space-between" }}>
@@ -1506,7 +1506,7 @@ export default function App() {
                   </button>
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Cookie 헤더는 브라우저에서 설정할 수 없어 프록시로 전달합니다.
+                  일부만 넣지 말고 Cookie 헤더 전체를 붙여넣으세요. (token은 1시간마다 만료되니 만료 시 다시 복사)
                 </div>
               </>
             )}
