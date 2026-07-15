@@ -14,3 +14,11 @@ webleState.json
 logs/*.err.log
 logs/*.log
 !logs/cron.log
+
+# 상태/타인 정보 데이터 (로컬 유지, 커밋 안 함)
+commenter-blog-urls.json
+neighbors.json
+edited-visitor-comments.json
+visited-posts.json
+replied-comments.json
+collab-proposals.json
